@@ -33,7 +33,8 @@ export function createBrowserApp(provider?: Provider, options: Options = {}) {
     const origin = request.headers.origin
     const allowed = new Set([configuredOrigin, 'http://127.0.0.1:5173', 'http://localhost:5173', ...(localHost ? [`http://${host}`] : [])].filter(Boolean))
     if (origin && !allowed.has(origin)) return reply.code(403).send({ error: 'Origin not allowed.' })
-    if (request.headers['sec-fetch-site'] === 'cross-site') return reply.code(403).send({ error: 'Cross-site requests forbidden.' })
+    // Top-level navigations from other sites (links, bookmarks, the Render dashboard) may load the page; only the API is origin-locked.
+    if (request.url.startsWith('/api') && request.headers['sec-fetch-site'] === 'cross-site') return reply.code(403).send({ error: 'Cross-site requests forbidden.' })
   })
   app.setErrorHandler((error, _request, reply) => {
     const status = (error as { statusCode?: number }).statusCode

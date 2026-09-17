@@ -41,6 +41,9 @@ test('hosted origin configuration permits Render HTTPS without exposing workspac
     assert.equal((await app.inject({ url: '/api/health', headers: { host: 'evil.example' } })).statusCode, 403)
     assert.equal((await app.inject({ url: '/api/health', headers: { host: 'pencil.example', origin: 'https://evil.example' } })).statusCode, 403)
     assert.equal((await app.inject({ url: '/api/health' })).json().storage, 'browser')
+    const crossSite = { host: 'pencil.example', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'navigate' }
+    assert.equal((await app.inject({ url: '/api/health', headers: crossSite })).statusCode, 403)
+    assert.notEqual((await app.inject({ url: '/', headers: crossSite })).statusCode, 403)
     for (const url of ['/api/conversations', '/api/decks', '/api/conversations/anything/artifacts/anything']) assert.equal((await app.inject({ url })).statusCode, 404)
     assert.throws(() => createBrowserApp(undefined, { publicOrigin: 'https://pencil.example/path' }), /PUBLIC_ORIGIN/)
   } finally { await app.close() }

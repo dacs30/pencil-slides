@@ -63,7 +63,7 @@ The **Pencil** interface uses a Claude-inspired chat-and-artifact layout, not An
 - **Text** inserts editable text. **Shapes** offers working rectangle and ellipse tools.
 - **Properties** reveals slide naming/background, element selection, geometry/text/fill controls, and slide reordering/deletion.
 - The bottom strip provides previous/next navigation, collapsible thumbnails, Add slide, zoom controls, and Fit. Export PNG, PowerPoint, and Present remain at the top.
-- The anchored composer shows the live selection. Use Send or ⌘/Ctrl+Enter. Prompt suggestions populate the composer without sending anything.
+- The anchored composer shows the live selection. Press Enter or use Send (Shift+Enter inserts a newline). Prompt suggestions populate the composer without sending anything.
 - Successful AI edits produce clickable **slide artifact cards** in the conversation. Expand an action summary to inspect factual editor calls, errors, and durable-save revisions—not generated reasoning. Cards and action results survive reload in IndexedDB. Historical cards identify the saved revision but open the **current** deck, not an archived snapshot.
 - **Comments** opens a local review sidebar with point/object pins, replies, resolve/reopen, and an explicit handoff to Claude. Comments are separate from artwork and never appear in exports.
 - The displayed canvas surface is clipped to the active slide plus an editing margin, so adjacent frames do not distract. This is a CSS viewport mask over the real CanvasKit surface; the document graph, all slides, native editing, and exports remain intact. Resizing the workspace refits the slide.

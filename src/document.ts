@@ -93,6 +93,14 @@ export function blankDeck(): Snapshot {
   const graph = new SceneGraph()
   const pageId = graph.getPages()[0]!.id
   const id = crypto.randomUUID()
+  graph.createNode('FRAME', pageId, { id, name: 'Slide 1', width: 1920, height: 1080, fills: fill('#ffffff'), clipsContent: true })
+  return snapshot(graph, { title: 'Untitled deck', pageId, slides: [{ id, title: 'Slide 1' }] })
+}
+/** A deck whose first slide already holds text and a shape; used by tests that need populated nodes. */
+export function sampleDeck(): Snapshot {
+  const graph = new SceneGraph()
+  const pageId = graph.getPages()[0]!.id
+  const id = crypto.randomUUID()
   graph.createNode('FRAME', pageId, { id, name: 'Your next big idea', width: 1920, height: 1080, fills: fill('#f8f5ef'), clipsContent: true })
   graph.createNode('TEXT', id, { id: crypto.randomUUID(), name: 'Title', x: 150, y: 260, width: 1600, height: 220, text: 'Your next big idea', fontSize: 112, fontFamily: 'Inter', fontWeight: 700, fills: fill('#202c3b') })
   graph.createNode('TEXT', id, { id: crypto.randomUUID(), name: 'Subtitle', x: 158, y: 540, width: 1400, height: 160, text: 'Start with a blank canvas. Make something worth sharing.', fontSize: 44, fontFamily: 'Inter', fills: fill('#526170') })

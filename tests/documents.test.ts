@@ -8,7 +8,7 @@ import { unzipSync, strFromU8 } from 'fflate'
 import { Store } from '../server/store.js'
 import { WorkspaceStore } from '../server/workspace-store.js'
 import { createApp } from '../server/app.js'
-import { blankDeck } from '../src/document.js'
+import { sampleDeck } from '../src/document.js'
 import { blankDocument, richContentSchema, textSnapshotSchema, applyTextBatch, replayTextSteps, mapTextAnchor, richSchema } from '../shared/rich-text.js'
 import { exportWord } from '../src/word-export.js'
 import { artifactBatchSchema } from '../shared/artifacts.js'
@@ -133,7 +133,7 @@ test('legacy decks and chat migrate once without destroying snapshots or comment
   const dir = mkdtempSync(join(tmpdir(), 'pencil-migration-')), path = join(dir, 'test.sqlite')
   let store = new Store(path)
   try {
-    const deck = store.create(blankDeck())
+    const deck = store.create(sampleDeck())
     store.append(deck.id, 'user', 'Original request')
     store.append(deck.id, 'assistant', 'Original artifact', { artifacts: [{ title: 'Deck', revision: 0, slideIds: deck.snapshot.slides.map(s => s.id) }] })
     store.close(); store = new Store(path)

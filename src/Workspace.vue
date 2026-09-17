@@ -625,7 +625,7 @@ defineExpose({ flush, execute, context: () => ({ selectedIds: [...state.selected
         </details>
         <form class="composer" @submit.prevent="sendChat()">
           <div v-if="state.selectedIds.size" class="selection-context"><span aria-hidden="true">⌖</span>{{ state.selectedIds.size }} {{ state.selectedIds.size === 1 ? 'element' : 'elements' }} selected<span class="context-title">{{ selected?.name }}</span></div>
-          <textarea ref="composer" aria-label="Message Claude" v-model="prompt" placeholder="How should we shape this?" :disabled="running || fatal" @keydown.meta.enter.prevent="sendChat()" @keydown.ctrl.enter.prevent="sendChat()" />
+          <textarea ref="composer" aria-label="Message Claude" v-model="prompt" placeholder="How should we shape this?" :disabled="running || fatal" @keydown.enter.exact.prevent="sendChat()" @keydown.ctrl.enter.prevent="sendChat()" @keydown.meta.enter.prevent="sendChat()" />
           <div class="composer-footer"><span class="model-label">Claude <span aria-hidden="true">·</span> Slide partner</span><button v-if="running" type="button" class="stop-button" @click="cancelChat">Stop <span aria-hidden="true">■</span></button><button v-else class="send-button" aria-label="Send message" :disabled="!aiConfigured || locked || !prompt.trim()" title="Send message (⌘/Ctrl + Enter)">↑</button></div>
         </form>
         <p class="privacy-note">Your deck stays local. AI receives context when you send.</p>

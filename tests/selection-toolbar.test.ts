@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { SceneGraph } from '@open-pencil/scene-graph'
 import { createEditor, createDefaultEditorState } from '@open-pencil/core/editor'
-import { blankDeck, restore, snapshot, applyOperations, fill } from '../src/document.js'
+import { sampleDeck, restore, snapshot, applyOperations, fill } from '../src/document.js'
 import { elementProps } from '../shared/model.js'
 import { toolbarSelection, selectionViewportBounds, placeSelectionToolbar, textToggleState, textAttributeValues } from '../src/selection-toolbar.js'
 import { Store } from '../server/store.js'
@@ -43,7 +43,7 @@ test('toolbar bounds follow SDK rotation/pan/zoom and placement flips/clamps at 
 })
 
 test('text formatting updates requested rich-run attributes, preserves other styles, and round-trips through undo/save/reload', () => {
-  const data = blankDeck(), graph = new SceneGraph()
+  const data = sampleDeck(), graph = new SceneGraph()
   restore(graph, data)
   const title = graph.getChildren(data.slides[0]!.id).find(n => n.type === 'TEXT')!
   graph.updateNode(title.id, { text: 'Hello world', fontSize: 80, styleRuns: [
@@ -84,7 +84,7 @@ test('text formatting updates requested rich-run attributes, preserves other sty
 })
 
 test('shape fill/outline/radius changes use validated SDK properties and remove outlines explicitly at zero', () => {
-  const data = blankDeck(), graph = new SceneGraph()
+  const data = sampleDeck(), graph = new SceneGraph()
   restore(graph, data)
   const editor = createEditor({ graph, state: createDefaultEditorState(data.pageId) })
   const meta = { title: data.title, pageId: data.pageId, slides: structuredClone(data.slides) }

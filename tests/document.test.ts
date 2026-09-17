@@ -2,11 +2,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { SceneGraph } from '@open-pencil/scene-graph'
 import { createDefaultEditorState, createEditor } from '@open-pencil/core/editor'
-import { applyOperations, blankDeck, restore, snapshot } from '../src/document.js'
+import { applyOperations, blankDeck, sampleDeck, restore, snapshot } from '../src/document.js'
 import { batchSchema, snapshotSchema } from '../shared/model.js'
 
 test('real OpenPencil graph survives snapshots, text/shapes, reorder and atomic undo', () => {
-  const data = blankDeck()
+  const data = sampleDeck()
   const graph = new SceneGraph()
   restore(graph, data)
   assert.deepEqual(snapshot(graph, data), data)
@@ -40,13 +40,13 @@ test('real OpenPencil graph survives snapshots, text/shapes, reorder and atomic 
 test('schemas reject unsafe tools, oversized batches and broken slide topology', () => {
   assert.throws(() => batchSchema.parse({ expectedRevision: 0, operations: [{ op: 'eval', code: 'bad' }] }))
   assert.throws(() => batchSchema.parse({ expectedRevision: -1, operations: [] }))
-  const data = blankDeck()
+  const data = sampleDeck()
   data.nodes.find(n => n.type === 'FRAME')!.width = 100
   assert.throws(() => snapshotSchema.parse(data))
 })
 
 test('invalid operation can roll back without leaving a partial graph', () => {
-  const before = blankDeck()
+  const before = sampleDeck()
   const graph = new SceneGraph()
   restore(graph, before)
   const editor = createEditor({ graph, state: createDefaultEditorState(before.pageId) })
@@ -63,7 +63,7 @@ test('invalid operation can roll back without leaving a partial graph', () => {
 
 test('restoration protects the document root from persisted SDK numeric ID collisions', () => {
   for (const collision of ['page', 'element']) {
-    const data = blankDeck()
+    const data = sampleDeck()
     const graph = new SceneGraph()
     if (collision === 'page') {
       const old = data.pageId
@@ -81,4 +81,12 @@ test('restoration protects the document root from persisted SDK numeric ID colli
     assert.equal(snapshot(graph, data).nodes.length, data.nodes.length)
     assert.notEqual(graph.rootId, data.pageId)
   }
+})
+
+test('a new deck starts with one empty slide and no placeholder text', () => {
+  const data = blankDeck()
+  assert.equal(data.slides.length, 1)
+  assert.deepEqual(data.nodes.map(n => n.type), ['FRAME'])
+  assert.equal(data.nodes[0]!.childIds.length, 0)
+  snapshotSchema.parse(data)
 })

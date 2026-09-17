@@ -215,7 +215,7 @@ onUnmounted(() => { controller?.abort(); void writer?.flush().catch(() => { /* T
         <details v-if="!aiConfigured" class="key-notice"><summary>{{ aiError ? 'AI service unavailable' : 'Connect Claude to start a conversation' }}</summary><p>{{ aiError || 'Set ANTHROPIC_API_KEY on the server and restart. Editing, comments, and export work without a key.' }}</p></details>
         <form class="composer" @submit.prevent="send()">
           <div v-if="selectionLabel" class="selection-context">{{ selectionLabel }}</div>
-          <textarea aria-label="Message Claude" v-model="prompt" placeholder="What would you like to create or change?" :disabled="running" @keydown.ctrl.enter.prevent="send()" @keydown.meta.enter.prevent="send()" />
+          <textarea aria-label="Message Claude" v-model="prompt" placeholder="What would you like to create or change?" :disabled="running" @keydown.enter.exact.prevent="send()" @keydown.ctrl.enter.prevent="send()" @keydown.meta.enter.prevent="send()" />
           <div class="composer-footer"><span class="model-label">Claude · Your creative partner</span><button v-if="running" type="button" @click="cancel">Stop</button><button v-else aria-label="Send message" :disabled="locked || !aiConfigured || !prompt.trim()">Send</button></div>
         </form>
         <p class="privacy-note">Saved in this browser. AI receives context when you send.</p>

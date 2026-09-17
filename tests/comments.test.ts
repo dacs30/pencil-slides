@@ -8,7 +8,7 @@ import { Store } from '../server/store.js'
 import { CommentStore } from '../server/comments.js'
 import { createApp } from '../server/app.js'
 import type { Provider } from '../server/agent.js'
-import { blankDeck, restore, snapshot } from '../src/document.js'
+import { sampleDeck, restore, snapshot } from '../src/document.js'
 import { objectPointOnSlide, resolveCommentAnchor, screenToSlidePoint, slidePointToViewport } from '../src/comment-geometry.js'
 import { createCommentSchema, type CommentThread } from '../shared/comments.js'
 
@@ -17,7 +17,7 @@ test('comment storage preserves threads/replies, retries, resolve/reopen and lim
   const path = `data/comments-test-${randomUUID()}.sqlite`
   let store = new Store(path)
   try {
-    const deck = store.create(blankDeck())
+    const deck = store.create(sampleDeck())
     let comments = new CommentStore(store)
     const input = { id: randomUUID(), expectedRevision: 0, anchor: { kind: 'point', slideId: deck.snapshot.slides[0]!.id, x: 120, y: 220 }, body: "  Please improve this. '; DROP TABLE decks; --  " }
     const thread = comments.create(deck.id, input)
@@ -57,7 +57,7 @@ test('comment storage preserves threads/replies, retries, resolve/reopen and lim
 test('object anchors retain original fallback coordinates and detach permanently on durable deletion/ID reuse', () => {
   const store = new Store(':memory:')
   try {
-    const data = blankDeck()
+    const data = sampleDeck()
     const graph = new SceneGraph(); restore(graph, data)
     const second = graph.createNode('FRAME', data.pageId, { id: 'second-slide', width: 1920, height: 1080, x: 2120 })
     const meta = { title: data.title, pageId: data.pageId, slides: [...data.slides, { id: second.id, title: 'Second' }] }
@@ -120,7 +120,7 @@ test('pin coordinate math respects actual origin, pan, zoom, nested rotations an
 test('comment API rejects malformed, missing and cross-deck anchors with explicit errors', async () => {
   const store = new Store(':memory:'), app = createApp(store)
   try {
-    const first = store.create(blankDeck()), second = store.create(blankDeck())
+    const first = store.create(sampleDeck()), second = store.create(sampleDeck())
     const body = { id: randomUUID(), expectedRevision: 0, anchor: { kind: 'point', slideId: first.snapshot.slides[0]!.id, x: 20, y: 30 }, body: 'Comment' }
     assert.equal((await app.inject({ method: 'POST', url: `/api/decks/${first.id}/comments`, payload: { ...body, id: 'bad' } })).statusCode, 400)
     assert.equal((await app.inject({ method: 'POST', url: `/api/decks/${first.id}/comments`, payload: { ...body, anchor: { kind: 'object', slideId: body.anchor.slideId, nodeId: 'missing' } } })).statusCode, 409)
@@ -135,7 +135,7 @@ test('comment API rejects malformed, missing and cross-deck anchors with explici
 
 test('AI handoff is explicit, carries untrusted thread context, requires a fresh slide read and never auto-resolves', async () => {
   const store = new Store(':memory:')
-  const deck = store.create(blankDeck()), comments = new CommentStore(store)
+  const deck = store.create(sampleDeck()), comments = new CommentStore(store)
   const slideId = deck.snapshot.slides[0]!.id
   const target = deck.snapshot.nodes.find(n => n.type === 'TEXT')!
   const thread = comments.create(deck.id, { id: randomUUID(), expectedRevision: 0, anchor: { kind: 'object', slideId, nodeId: target.id }, body: 'PRIVATE_COMMENT_ONLY: Please tighten the title.' })

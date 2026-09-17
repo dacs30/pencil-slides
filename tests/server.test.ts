@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { Store } from '../server/store.js'
 import { createApp } from '../server/app.js'
 import { runAgent, type Provider } from '../server/agent.js'
-import { blankDeck } from '../src/document.js'
+import { sampleDeck } from '../src/document.js'
 import type Anthropic from '@anthropic-ai/sdk'
 
 test('SQLite saves atomically, survives reopen and enforces revision/idempotency', () => {
@@ -13,7 +13,7 @@ test('SQLite saves atomically, survives reopen and enforces revision/idempotency
   const path = `data/test-${randomUUID()}.sqlite`
   let store = new Store(path)
   try {
-    const deck = store.create(blankDeck())
+    const deck = store.create(sampleDeck())
     const modified = { ...deck.snapshot, title: 'Persistent' }
     assert.deepEqual(store.save(deck.id, 0, modified, 'once'), { revision: 1 })
     assert.deepEqual(store.save(deck.id, 0, modified, 'once'), { revision: 1 })
@@ -52,7 +52,7 @@ const tool = (name: string, input: unknown): Anthropic.ToolUseBlock => ({ type: 
 
 test('mocked streamed provider waits for durable browser acknowledgement, persists chat, returns real failure', async () => {
   const store = new Store(':memory:')
-  const deck = store.create(blankDeck())
+  const deck = store.create(sampleDeck())
   let round = 0
   const provider: Provider = async (messages, _signal, text) => {
     const last = messages.at(-1)?.content
@@ -135,7 +135,7 @@ test('agent bounds loops, rejects unsupported tools and observes cancellation', 
 
 test('cancellation endpoint aborts the provider and rejects late AI writes', async () => {
   const store = new Store(':memory:')
-  const deck = store.create(blankDeck())
+  const deck = store.create(sampleDeck())
   let aborted = false
   const provider: Provider = async (_messages, signal) => new Promise((_resolve, reject) => {
     signal.addEventListener('abort', () => { aborted = true; reject(signal.reason) }, { once: true })

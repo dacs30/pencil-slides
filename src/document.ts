@@ -43,12 +43,12 @@ export function elementChanges(type: SceneNode['type'], p: ElementProperties, cu
   }
   return changes
 }
-function encode(_key: string, value: unknown): unknown {
+export function encode(_key: string, value: unknown): unknown {
   if (value instanceof Map) return { $map: [...value] }
   if (value instanceof Uint8Array) return { $bytes: [...value] }
   return value
 }
-function decode(_key: string, value: unknown): unknown {
+export function decode(_key: string, value: unknown): unknown {
   if (value && typeof value === 'object') {
     if ('$map' in value) return new Map(value.$map as [string, unknown][])
     if ('$bytes' in value) return new Uint8Array(value.$bytes as number[])
@@ -61,9 +61,12 @@ export function snapshot(graph: SceneGraph, meta: Pick<Snapshot, 'title' | 'slid
 }
 export function restore(graph: SceneGraph, data: Snapshot) {
   const saved = JSON.parse(JSON.stringify(snapshotSchema.parse(data)), decode) as Omit<Snapshot, 'nodes'> & { nodes: SceneNode[] }
+  restoreGraphNodes(graph, saved.pageId, saved.nodes, saved.slides.map(s => s.id))
+}
+export function restoreGraphNodes(graph: SceneGraph, pageId: string, nodes: SceneNode[], roots: string[]) {
   const page = graph.getPages()[0]!
   for (const id of [...page.childIds]) graph.deleteNode(id)
-  if (saved.pageId === graph.rootId || saved.nodes.some(n => n.id === graph.rootId)) {
+  if (pageId === graph.rootId || nodes.some(n => n.id === graph.rootId)) {
     const root = graph.getNode(graph.rootId)!
     graph.nodes.delete(root.id)
     root.id = `document:${crypto.randomUUID()}`
@@ -71,21 +74,19 @@ export function restore(graph: SceneGraph, data: Snapshot) {
     graph.nodes.set(root.id, root)
     page.parentId = root.id
   }
-  if (page.id !== saved.pageId) {
+  if (page.id !== pageId) {
     graph.nodes.delete(page.id)
-    graph.getNode(graph.rootId)!.childIds = [saved.pageId]
-    page.id = saved.pageId
+    graph.getNode(graph.rootId)!.childIds = [pageId]
+    page.id = pageId
     graph.nodes.set(page.id, page)
   }
-  const byId = new Map(saved.nodes.map(n => [n.id, n]))
-  for (const slide of saved.slides) {
-    const frame = byId.get(slide.id)!
-    graph.createNode('FRAME', page.id, { ...frame, childIds: [] })
-    for (const id of frame.childIds) {
-      const node = byId.get(id)!
-      graph.createNode(node.type, frame.id, { ...node, childIds: [] })
-    }
+  const byId = new Map(nodes.map(n => [n.id, n]))
+  function create(id: string, parentId: string) {
+    const node = byId.get(id)!
+    graph.createNode(node.type, parentId, { ...node, childIds: [] })
+    for (const child of node.childIds) create(child, node.id)
   }
+  for (const id of roots) create(id, page.id)
   graph.clearAbsPosCache()
 }
 export function blankDeck(): Snapshot {

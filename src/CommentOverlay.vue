@@ -7,19 +7,25 @@ const props = defineProps<{
   graph: SceneGraph; slideId: string; view: CommentView; pointMode: boolean; disabled: boolean
   focusedId: string | null; draftPin: Point | null; canvasRect: () => DOMRect | undefined
   pins: { id: string; number: number; position: Point; detached: boolean; resolved: boolean; body: string }[]
+  surface?: 'slide' | 'page'
 }>()
-const emit = defineEmits<{ select: [id: string]; place: [x: number, y: number]; cancel: []; error: [message: string] }>()
+const emit = defineEmits<{ select: [id: string]; place: [x: number, y: number]; cancel: []; error: [message: string]; previewMove: [point: Point] }>()
 const picker = ref<HTMLElement>()
 const keyboardPoint = ref<Point>({ x: 960, y: 540 })
 const preview = computed(() => slidePointToViewport(props.graph, props.slideId, keyboardPoint.value, props.view))
 watch(() => props.pointMode, async enabled => {
-  if (enabled) { keyboardPoint.value = { x: 960, y: 540 }; await nextTick(); picker.value?.focus() }
+  if (enabled) {
+    const frame = props.graph.getNode(props.slideId), rect = props.canvasRect()
+    const visibleCenter = rect ? screenToSlidePoint(props.graph, props.slideId, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, rect, props.view) : null
+    keyboardPoint.value = visibleCenter ?? { x: (frame?.width ?? 1920) / 2, y: (frame?.height ?? 1080) / 2 }
+    await nextTick(); picker.value?.focus()
+  }
 }, { immediate: true })
 function place(event: MouseEvent) {
   const rect = props.canvasRect()
   if (!rect) return emit('error', 'Canvas bounds are unavailable. Try again when the canvas is ready.')
   const point = screenToSlidePoint(props.graph, props.slideId, { x: event.clientX, y: event.clientY }, rect, props.view)
-  if (!point) return emit('error', 'Choose a point inside the slide.')
+  if (!point) return emit('error', `Choose a point inside the ${props.surface ?? 'slide'}.`)
   emit('place', point.x, point.y)
 }
 function keydown(event: KeyboardEvent) {
@@ -32,7 +38,9 @@ function keydown(event: KeyboardEvent) {
   const step = steps[event.key]
   if (step) {
     event.preventDefault()
-    keyboardPoint.value = { x: Math.max(0, Math.min(1920, keyboardPoint.value.x + step.x)), y: Math.max(0, Math.min(1080, keyboardPoint.value.y + step.y)) }
+    const frame = props.graph.getNode(props.slideId)
+    keyboardPoint.value = { x: Math.max(0, Math.min(frame?.width ?? 1920, keyboardPoint.value.x + step.x)), y: Math.max(0, Math.min(frame?.height ?? 1080, keyboardPoint.value.y + step.y)) }
+    emit('previewMove', keyboardPoint.value)
   }
 }
 </script>
@@ -46,7 +54,7 @@ function keydown(event: KeyboardEvent) {
         :title="pin.body.slice(0, 200)" @pointerdown.stop @click.stop="emit('select', pin.id)">{{ pin.number }}</button>
       <span v-if="draftPin" class="comment-pin draft-pin" :style="{ left: `${draftPin.x}px`, top: `${draftPin.y}px` }" aria-hidden="true">+</span>
     </template>
-    <div v-else ref="picker" class="comment-point-picker" role="button" tabindex="0" aria-label="Place a comment on the slide" aria-describedby="comment-mode-instructions"
+    <div v-else ref="picker" class="comment-point-picker" role="button" tabindex="0" :aria-label="`Place a comment on the ${surface ?? 'slide'}`" aria-describedby="comment-mode-instructions"
       @pointerdown.stop.prevent @pointerup.stop @click.stop.prevent="place" @dblclick.stop.prevent @wheel.stop.prevent @keydown.stop="keydown">
       <span v-if="preview" class="comment-pin draft-pin" :style="{ left: `${preview.x}px`, top: `${preview.y}px` }" aria-hidden="true">+</span>
     </div>

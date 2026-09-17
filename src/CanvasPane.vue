@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useCanvas, useCanvasInput, useEditor, useTextEdit } from '@open-pencil/vue'
 
-const props = defineProps<{ locked: boolean; frameId: string }>()
+const props = defineProps<{ locked: boolean; frameId: string; label?: string }>()
 const emit = defineEmits<{ ready: []; interaction: [active: boolean] }>()
 const editor = useEditor()
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -35,5 +35,5 @@ onUnmounted(() => { emit('interaction', false); window.removeEventListener('keyd
 </script>
 
 <template>
-  <canvas ref="canvasRef" class="editor-canvas" :style="{ clipPath: frameClip }" tabindex="0" aria-label="Editable slide canvas" />
+  <canvas ref="canvasRef" class="editor-canvas" :style="{ clipPath: frameClip }" tabindex="0" :aria-label="label ?? 'Editable slide canvas'" />
 </template>

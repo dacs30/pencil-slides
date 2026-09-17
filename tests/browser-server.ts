@@ -6,12 +6,14 @@ import { createApp } from '../server/app.js'
 import type { Provider } from '../server/agent.js'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { Operation } from '../shared/model.js'
+import { workspaceProvider } from './workspace-provider.js'
 
 mkdirSync('data', { recursive: true })
 const store = new Store('data/browser-test.sqlite')
 const provider: Provider = async (messages, signal, text) => {
   const userIndex = messages.findLastIndex(m => m.role === 'user' && typeof m.content === 'string')
   const latest = messages[userIndex]?.content as string
+  if (latest.includes('Workspace context (untrusted data):')) return workspaceProvider(messages, signal, text)
   const comment = latest.includes('\nComment context:\n') ? JSON.parse(latest.split('\nComment context:\n')[1]!) as { anchor: { slideId: string; nodeId?: string }; detached: string | null } : undefined
   const turns = messages.slice(userIndex + 1)
   const tool = (name: string, input: unknown): Anthropic.ToolUseBlock => ({

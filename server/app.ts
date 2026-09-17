@@ -10,6 +10,7 @@ import { anthropicProvider, runAgent, type Provider } from './agent.js'
 import type { ChatDetails, ToolActivity } from '../shared/chat.js'
 import { chatRequestSchema, commentRouteSchema } from '../shared/comments.js'
 import { CommentStore } from './comments.js'
+import { registerWorkspace } from './workspace-api.js'
 
 type Pending = { command: Command; resolve: (result: ToolResult) => void }
 type Run = { deckId: string; controller: AbortController; pending: Map<string, Pending>; requiredSlideId?: string; readRevision?: number }
@@ -32,6 +33,7 @@ export function createApp(store: Store, provider?: Provider) {
     reply.code(error instanceof Conflict ? 409 : error instanceof z.ZodError ? 400 : status && status >= 400 && status <= 599 ? status : 500)
       .send({ error: error instanceof Error ? error.message : 'Request failed' })
   })
+  registerWorkspace(app, store, provider, id => [...runs.values()].some(r => r.deckId === id))
   app.get('/api/health', async () => ({ ok: true, aiConfigured: Boolean(provider || process.env.ANTHROPIC_API_KEY) }))
   app.get('/api/decks', async () => store.list())
   app.post('/api/decks', async request => store.create(snapshotSchema.parse(request.body)))

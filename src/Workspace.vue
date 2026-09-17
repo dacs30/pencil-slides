@@ -20,6 +20,9 @@ import SelectionToolbar from './SelectionToolbar.vue'
 import { toolbarSelection } from './selection-toolbar'
 import type { CommentHandoff } from '../shared/comments'
 import { saveWithReceipt, UnknownSaveOutcome } from './artifact-save'
+import { prepareBrowserChat, committedBrowserResult, MessageWriter } from './browser-chat'
+import { browserStore } from './local-store'
+import { artifactReadSchema, artifactBatchSchema, type ArtifactCommand } from '../shared/artifacts'
 
 const props = defineProps<{ deck: Deck; embedded?: boolean; externalBusy?: boolean; saveBase?: string }>()
 const emit = defineEmits<{ saved: []; lock: [locked: boolean]; handoff: [request: CommentHandoff]; selection: [context: unknown] }>()
@@ -75,6 +78,7 @@ let resizeFrame = 0
 const toolStatus = ref('')
 const aiConfigured = ref(false)
 let runId = ''
+let runToken = ''
 let chatController: AbortController | undefined
 let stopped = false
 let suppressed = false
@@ -326,15 +330,45 @@ async function sendChat(handoff?: CommentHandoff) {
   const message = handoff?.message ?? prompt.value.trim()
   if (!message || locked.value) return
   try { await flush() } catch { return }
+  let conversationId: string, request: Awaited<ReturnType<typeof prepareBrowserChat>>
+  try {
+    conversationId = await browserStore.owner(props.deck.id)
+    request = await prepareBrowserChat(conversationId, message, props.deck.id, messages.value.map(m => ({ role: m.role, content: m.content })), handoff)
+  } catch (e) { error.value = String(e); return }
   running.value = true
-  error.value = ''; toolStatus.value = ''; runId = ''
+  error.value = ''; toolStatus.value = ''; runId = ''; runToken = ''
   if (!handoff) prompt.value = ''
   followChat = true
-  messages.value.push({ role: 'user', content: message }, { role: 'assistant', content: '', activities: [], artifacts: [] })
+  messages.value.push({ role: 'user', content: message }, { role: 'assistant', content: '', runState: 'running', activities: [], artifacts: [] })
   const responseMessage = messages.value[messages.value.length - 1]!
   chatController = new AbortController()
+  const messageId = crypto.randomUUID()
+  const writer = new MessageWriter(conversationId, messageId, () => ({
+    role: 'assistant', content: responseMessage.content, runState: responseMessage.runState, activities: responseMessage.activities,
+    artifacts: responseMessage.artifacts?.map(a => ({ id: props.deck.id, kind: 'slides', title: a.title, revision: a.revision })),
+  }), failure => { error.value = `Chat could not be saved in this browser: ${String(failure)}`; chatController?.abort(new Error(error.value)) })
+  let completed = false
+  async function standaloneCommand(command: ArtifactCommand): Promise<ToolResult> {
+    try {
+      if (command.name === 'create_artifact') throw new Error('Create other artifacts from the shared conversation workspace.')
+      if (command.name === 'read_context') {
+        const input = artifactReadSchema.parse(command.input)
+        if (input.view === 'workspace') return { ok: true, data: { id: conversationId, artifacts: [{ id: props.deck.id, kind: 'slides', title: meta.title, revision: revision.value }], activeArtifactId: props.deck.id } }
+        if (input.artifactId !== props.deck.id) throw new Error('This standalone editor only handles its current deck.')
+        const result = await execute({ ...command, name: 'read_context', input: { view: input.view, ...(input.slideId ? { slideId: input.slideId } : {}) } })
+        if (!result.ok) return result
+        if (!result.data || typeof result.data !== 'object') throw new Error('Invalid editor context.')
+        return { ok: true, data: { ...result.data, artifactId: props.deck.id, kind: 'slides' } }
+      }
+      const input = artifactBatchSchema.parse(command.input)
+      if (input.kind !== 'slides' || input.artifactId !== props.deck.id) throw new Error('This standalone editor only handles its current deck.')
+      return committedBrowserResult(conversationId, props.deck.id, command.id, await execute({ ...command, name: 'apply_batch', input: { expectedRevision: input.expectedRevision, operations: input.operations } }))
+    } catch (e) { return { ok: false, error: String(e).slice(0, 5000) } }
+  }
   try {
-    const response = await fetch(`/api/decks/${props.deck.id}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(handoff ?? { message }), signal: chatController.signal })
+    await browserStore.putMessage(conversationId, crypto.randomUUID(), { role: 'user', content: message })
+    writer.changed(); await writer.flush()
+    const response = await fetch(`/api/conversations/${conversationId}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request), signal: chatController.signal })
     if (!response.ok) throw new Error((await response.json()).error || 'Chat failed')
     const reader = response.body!.getReader()
     const decoder = new TextDecoder()
@@ -349,10 +383,16 @@ async function sendChat(handoff?: CommentHandoff) {
         const raw = packet.match(/^data: (.+)$/m)?.[1]
         if (!event || !raw) continue
         const data = JSON.parse(raw)
-        if (event === 'run') runId = data.id
+        if (event === 'run') { runId = data.id; runToken = data.token }
         if (event === 'text') responseMessage.content += data.text
         if (event === 'error') throw new Error(data.error)
-        if (event === 'artifact') responseMessage.artifacts!.push(data)
+        if (event === 'done') completed = true
+        if (event === 'artifact') {
+          if (data.id !== props.deck.id || data.kind !== 'slides') throw new Error('Received an artifact for another editor.')
+          const card = { title: data.title, revision: data.revision, slideIds: meta.slides.map(s => s.id) }
+          if (responseMessage.artifacts!.length) responseMessage.artifacts![0] = card
+          else responseMessage.artifacts!.push(card)
+        }
         if (event === 'tool_result') {
           toolStatus.value = data.ok ? 'Editor action completed' : 'Editor action returned an error'
           const activity: ToolActivity = { id: data.commandId, name: data.name, status: data.ok ? 'complete' : 'failed', error: data.error, revision: data.name === 'apply_batch' && data.ok ? data.data?.revision : undefined }
@@ -364,27 +404,33 @@ async function sendChat(handoff?: CommentHandoff) {
           toolStatus.value = data.name === 'read_context' ? 'Reading editor context…' : 'Updating your slides…'
           responseMessage.activities!.push({ id: data.id, name: data.name, status: 'running' })
           if (!chatController.signal.aborted) {
-            const result = await execute(data)
-            await api(`/runs/${runId}/commands/${data.id}`, { method: 'POST', body: JSON.stringify(result) })
+            const result = await standaloneCommand(data)
+            await api(`/workspace-runs/${runId}/commands/${data.id}`, { method: 'POST', headers: { Authorization: `Bearer ${runToken}` }, body: JSON.stringify(result) })
           }
         }
+        writer.changed()
+        if (event === 'tool_result' || event === 'artifact') await writer.flush()
       }
       if (done) break
     }
+    if (!completed) throw new Error('Chat stream ended before completion. Browser-saved changes are retained.')
   } catch (e) {
-    const message = chatController.signal.aborted ? 'Cancelled. Already saved changes are retained.' : String(e)
+    const message = chatController.signal.aborted ? chatController.signal.reason instanceof Error && chatController.signal.reason.name !== 'AbortError' ? chatController.signal.reason.message : 'Cancelled. Browser-saved changes are retained.' : String(e)
     error.value = message
     responseMessage.content += `\n${message}`
+    if (runId && runToken) await api(`/workspace-runs/${runId}/cancel`, { method: 'POST', headers: { Authorization: `Bearer ${runToken}` } }).catch(cancelError => { error.value += ` Cancellation failed: ${String(cancelError)}` })
   } finally {
+    responseMessage.runState = completed ? 'complete' : 'interrupted'
     for (const activity of responseMessage.activities ?? []) {
       if (activity.status === 'running') { activity.status = 'interrupted'; activity.error = 'Interrupted. Check the current deck for any saved changes.' }
     }
-    running.value = false; runId = ''; chatController = undefined
+    writer.changed(); await writer.flush().catch(e => { error.value = `Chat could not be saved in this browser: ${String(e)}` })
+    running.value = false; runId = ''; runToken = ''; chatController = undefined
   }
 }
 async function cancelChat() {
   if (runId) {
-    try { await api(`/runs/${runId}/cancel`, { method: 'POST' }) } catch (e) { error.value = String(e) }
+    try { await api(`/workspace-runs/${runId}/cancel`, { method: 'POST', headers: { Authorization: `Bearer ${runToken}` } }) } catch (e) { error.value = String(e) }
   }
   chatController?.abort()
 }
@@ -563,7 +609,7 @@ defineExpose({ flush, execute, context: () => ({ selectedIds: [...state.selected
               <summary><span class="activity-symbol" aria-hidden="true">⌁</span>{{ activitySummary(m.activities) }}<span class="disclosure-arrow" aria-hidden="true">⌄</span></summary>
               <ul><li v-for="activity in m.activities" :key="activity.id" :class="activity.status">
                 <span aria-hidden="true">{{ activity.status === 'complete' ? '✓' : activity.status === 'running' ? '•' : '!' }}</span>
-                <div><strong>{{ toolName(activity) }}</strong><small>{{ activity.status === 'complete' ? (activity.revision === undefined ? 'Context returned by the editor' : `Saved to SQLite · revision ${activity.revision}`) : activity.error || 'Waiting for the editor' }}</small></div>
+                <div><strong>{{ toolName(activity) }}</strong><small>{{ activity.status === 'complete' ? (activity.revision === undefined ? 'Context returned by the editor' : `Saved in browser · revision ${activity.revision}`) : activity.error || 'Waiting for the editor' }}</small></div>
               </li></ul>
               <p class="activity-note">Actual editor actions and results. No private reasoning is displayed.</p>
             </details>

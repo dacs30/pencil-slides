@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: pencil-workspace
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: HOST
+        value: 0.0.0.0

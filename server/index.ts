@@ -1,13 +1,10 @@
-import { mkdirSync } from 'node:fs'
-import { Store } from './store.js'
-import { createApp } from './app.js'
+import { createBrowserApp } from './browser-app.js'
 
-mkdirSync('data', { recursive: true })
-const store = new Store('data/pencil-slides.sqlite')
-const app = createApp(store)
+const app = createBrowserApp()
 const port = Number(process.env.PORT || 3001)
-await app.listen({ host: '127.0.0.1', port })
-console.log(`Pencil Slides API: http://127.0.0.1:${port}`)
+const host = process.env.HOST || '127.0.0.1'
+await app.listen({ host, port })
+console.log(`Pencil AI relay: http://${host}:${port}; workspace storage stays in each browser.`)
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.once(signal, async () => { await app.close(); store.close(); process.exit(0) })
+  process.once(signal, async () => { await app.close(); process.exit(0) })
 }

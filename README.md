@@ -1,14 +1,18 @@
 # Pencil: documents, slides and pages
 
-A local, single-user creative studio: **Tiptap rich-text documents**, **real OpenPencil slides and designed pages**, Vue 3, CanvasKit, SQLite, and a server-side Claude tool-use assistant. This is an MVP, not a hosted service.
+A browser-local creative studio: **Tiptap rich-text documents**, **real OpenPencil slides and designed pages**, Vue 3, CanvasKit, IndexedDB, and a small server-side Claude relay. It can run locally or on Render without a persistent server disk.
 
 ## Conversations and artifacts
 
 One conversation can contain multiple **documents, slide decks and pages**. Use **+ Document**, **+ Slide deck**, or **+ Page**, switch with **Choose artifact**, or ask Claude to create them. Chat belongs to the conversation, not to a single deck. Each assistant response keeps one card per artifact: creation and later saves update that first card in place. Existing duplicate cards are coalesced when history loads. Cards identify the latest saved revision in that response but open the current artifact, not an archived snapshot.
 
-Existing decks migrate automatically into individual conversations with their original IDs, snapshots, slide comments, and chat/artifact history intact. Migration is transactional and runs once per unlinked deck. The old deck API remains available; decks created through that legacy API are imported into the workspace on the next server startup.
+Every browser profile has its own IndexedDB workspace for this site's origin. Tabs on the same origin share that workspace; other browser profiles and devices do not. The server has no artifact, comment or chat database, and it does not expose workspace read/write endpoints. AI requests still send the requested context through the server to Anthropic.
 
-`src/ConversationWorkspace.vue` owns the shared conversation, artifact switching, and streamed command dispatch. The slide and document editors expose the same adapter contract: `flush`, `execute`, and `context`. `Workspace.vue` remains the slide editor and can also operate in its original standalone mode. Saves use the shared receipt-reconciliation helper in `src/artifact-save.ts`.
+Use **Browser storage → Export workspace backup** before clearing browser data, changing devices, or moving from localhost to a hosted domain. **Import workspace backup** validates the file and adds new conversations with remapped artifact/comment IDs; it never overwrites existing work. Backups include artifacts, comments and chat, but not session-local undo history or in-flight AI runs. Import currently accepts files up to 50 MiB. Browser storage can be cleared or evicted, and private-browsing storage may disappear when that session ends.
+
+The previous SQLite workspace is retired; there is no automatic migration or server-side workspace store in the normal application. Server-side SQLite modules remain as legacy regression fixtures only and are not imported by the production entry point.
+
+`src/ConversationWorkspace.vue` owns the shared conversation, artifact switching, and streamed command dispatch. Editors expose the same adapter contract: `flush`, `execute`, and `context`. `src/local-store.ts` owns IndexedDB transactions; `src/local-api.ts` adapts the existing editor APIs to local storage. Saves retain the receipt-reconciliation helper in `src/artifact-save.ts`, but receipts are now browser-owned.
 
 Assistant replies render as sanitized GitHub-flavored Markdown while streaming and after reload: headings, emphasis, lists, links, tables, inline code and fenced code blocks. User messages and comment bodies remain plain text. Raw HTML is shown as text, external images are represented by their alt text rather than loaded, and links are restricted to HTTP(S) and mailto with opener protection. `src/MarkdownMessage.vue` uses Marked and DOMPurify; model output cannot create active scripts, forms or embedded content.
 
@@ -16,7 +20,7 @@ Assistant replies render as sanitized GitHub-flavored Markdown while streaming a
 
 Documents use Tiptap/ProseMirror, not OpenPencil. The editor supports paragraphs, headings 1-3, bold, italic, underline, strikethrough, inline code, highlighting, safe links, bullet/numbered lists, block quotes, code blocks, and horizontal rules. Select text to reveal its floating formatting toolbar. Lists and heading styles are also available in the document toolbar. Native typing, paste, selection, and keyboard undo/redo operate on real rich text.
 
-Content is persisted as validated ProseMirror JSON. Saves include replayable transaction steps; the server checks that replay produces the submitted snapshot and title, maps comment ranges, increments the revision, and writes the command receipt in one SQLite transaction. Manual edits autosave after 1.5 seconds of idle time, with a ten-second maximum delay during continuous typing. Background saves do not disable the editor, reset its content, move the cursor, or hide formatting controls. Each request captures an immutable prefix of transactions; typing and title edits made during that request remain queued for the next revision. Explicit export/review actions flush pending work. AI batches form one undo event, including title changes. Undo/redo are saved as new revisions. Unknown save outcomes pause editing rather than allowing a potentially divergent document. Wait for **Saved rN** before closing. History is local to the mounted editor; switching artifacts or reloading starts a new undo history.
+Content is persisted as validated ProseMirror JSON. The browser checks that replaying submitted steps produces the snapshot and title, maps comment ranges, increments the revision, and writes the command receipt in one IndexedDB transaction. Manual edits autosave after 1.5 seconds of idle time, with a ten-second maximum delay during continuous typing. Background saves do not disable the editor, reset its content, move the cursor, or hide formatting controls. Each request captures an immutable prefix of transactions; typing and title edits made during that request remain queued for the next revision. Explicit export/review actions flush pending work. AI batches form one undo event, including title changes. Undo/redo are saved as new revisions. Unknown save outcomes pause editing rather than allowing a potentially divergent document. Wait for **Saved rN** before closing. History is local to the mounted editor; switching artifacts or reloading starts a new undo history.
 
 Select text and choose **Comment** to start a range-anchored review thread. Comments support replies, resolve/reopen, original quoted text, and explicit **Ask Claude to address this**. Anchors follow ProseMirror position maps, not searches for matching words, so repeated text does not confuse their targets. Removing the entire selected range permanently detaches its thread; undoing deletion does not silently reattach it. Comments are stored separately from document content and never appear in Word export. Unsent comment/reply drafts block artifact and conversation switching. Limits are 100 threads per document, 50 messages per thread, and 2,000 characters per comment or selected quote.
 
@@ -26,11 +30,11 @@ The first document milestone deliberately excludes tables, images, checklists, r
 
 ### Shared AI workflow
 
-The assistant can `create_artifact`, `read_context`, and `apply_batch`. Reads and writes identify the artifact; document commands use ProseMirror positions rather than plain-text offsets, while slides retain their existing graph operations. Published Anthropic tool schemas have plain object roots (no top-level `oneOf`/`anyOf`/`allOf`). `operations` is one explicitly required array whose items enumerate the supported edits; runtime validation still strictly enforces the artifact kind. The server requires a successful current-revision read before each mutation and verifies a durable receipt before reporting success. There is at most one AI run per conversation. Editing and artifact/conversation switching are locked during a run; the command adapter can open the artifact being read or edited.
+The assistant can `create_artifact`, `read_context`, and `apply_batch`. Reads and writes identify the artifact; document commands use ProseMirror positions rather than plain-text offsets, while slides retain their existing graph operations. Published Anthropic tool schemas have plain object roots (no top-level `oneOf`/`anyOf`/`allOf`). `operations` is one explicitly required array whose items enumerate the supported edits; runtime validation still strictly enforces the artifact kind. The relay requires a read before each mutation and a matching durable browser acknowledgement before reporting success. Only the browser can verify its IndexedDB receipt. Each open workspace view runs one AI request at a time; other tabs can produce revision conflicts. Editing and artifact/conversation switching are locked during a run.
 
 The provider preserves Anthropic's stop reason. If a response reaches `max_tokens`, none of its tools are executed, even if an incomplete tool happens to parse as valid JSON. The agent receives explicit feedback to retry with a smaller batch; at most two such recoveries are allowed before a clear output-limit error stops the run. Already committed batches remain saved. Normal requests are guided toward small batches rather than a single large page payload. `tests/agent-output.test.ts` exercises this through the real SDK with a synthetic stream and no live credential.
 
-Comment handoffs load the thread on the server, validate its version and resolved state, and require a fresh read of the referenced artifact (and slide for slide comments). Comment text remains untrusted data. Handoffs do not clear an unrelated main-composer draft or automatically resolve the thread.
+Comment handoffs load the thread from IndexedDB, validate its version and resolved state, and send only its bounded context to the relay. The relay requires a fresh read of the referenced artifact (and slide for slide comments). Comment text remains untrusted data. Handoffs do not clear an unrelated main-composer draft or automatically resolve the thread.
 
 ### Designed pages
 
@@ -46,11 +50,11 @@ Page tools are `update_page`, `create_page_element`, `update_page_element`, `del
 
 Page **Comments** uses the same local review flow as slides: pin a point, comment on selected text/shapes/sections, or right-click the canvas and choose **Add comment**. Keyboard placement follows the visible artboard and can move through tall pages; pins use the real frame dimensions rather than a slide-height limit. Nested and rotated objects use SDK world transforms. Threads support replies, resolve/reopen, reload persistence, and explicit **Ask Claude to address this**. A full current-page read is required before a comment-driven AI edit, and Claude never auto-resolves the thread.
 
-Page comments live in separate `page_comment_threads` and `page_comment_messages` tables. They do not increment artwork revisions and never appear in full-window HTML or downloaded exports. Moving an object between sections of the same page preserves its attachment. Durable deletion permanently detaches the thread at its original page-local position; restoring the same object ID does not reattach it. Detachment is recorded in the artwork-save transaction. Unsent drafts block artifact/conversation switching. Limits remain 100 threads per page, 50 messages per thread and 2,000 characters per message.
+Page comments live in the browser's separate comment store. They do not increment artwork revisions and never appear in full-window HTML or downloaded exports. Moving an object between sections of the same page preserves its attachment. Durable deletion permanently detaches the thread at its original page-local position; restoring the same object ID does not reattach it. Detachment is recorded in the artwork-save transaction. Unsent drafts block artifact/conversation switching. Limits remain 100 threads per page, 50 messages per thread and 2,000 characters per message.
 
-The initial page release does **not** add multiple artboards inside one artifact, arbitrary HTML/CSS/script execution, remote images, forms, hosting, publishing, or external website imports. Existing deck/document data is untouched; page snapshots live in a separate `pages` table. `src/PageEditor.vue` reuses `CanvasPane.vue`, the OpenPencil editor, shared graph restoration and formatting helpers. `src/page-html.ts` renders the HTML view; it does not run model-generated code.
+The initial page release does **not** add multiple artboards inside one artifact, arbitrary HTML/CSS/script execution, remote images, forms, public page publishing, or external website imports. Page snapshots are typed records in the browser's artifact store. `src/PageEditor.vue` reuses `CanvasPane.vue`, the OpenPencil editor, shared graph restoration and formatting helpers. `src/page-html.ts` renders the HTML view; it does not run model-generated code.
 
-New implementation files: `shared/artifacts.ts`, `shared/rich-text.ts`, `shared/text-comments.ts`, `server/workspace-store.ts`, `server/workspace-api.ts`, `src/ConversationWorkspace.vue`, `src/DocumentEditor.vue`, and `src/word-export.ts`. The existing slide-only endpoints and contracts remain separate for backward compatibility.
+Storage and relay entry points: `src/local-store.ts`, `src/local-api.ts`, `src/browser-chat.ts`, `shared/browser-storage.ts`, `shared/browser-chat.ts`, and `server/browser-app.ts`. Editor-specific contracts and export adapters remain separate. Legacy server database modules are not registered by the production entry point.
 
 ## Workspace
 
@@ -60,7 +64,7 @@ The **Pencil** interface uses a Claude-inspired chat-and-artifact layout, not An
 - **Properties** reveals slide naming/background, element selection, geometry/text/fill controls, and slide reordering/deletion.
 - The bottom strip provides previous/next navigation, collapsible thumbnails, Add slide, zoom controls, and Fit. Export PNG, PowerPoint, and Present remain at the top.
 - The anchored composer shows the live selection. Use Send or ⌘/Ctrl+Enter. Prompt suggestions populate the composer without sending anything.
-- Successful AI edits produce clickable **slide artifact cards** in the conversation. Expand an action summary to inspect factual editor calls, errors, and durable-save revisions—not generated reasoning. Cards and action results survive reload in SQLite; existing conversations migrate without being discarded. Historical cards identify the saved revision but open the **current** deck, not an archived snapshot.
+- Successful AI edits produce clickable **slide artifact cards** in the conversation. Expand an action summary to inspect factual editor calls, errors, and durable-save revisions—not generated reasoning. Cards and action results survive reload in IndexedDB. Historical cards identify the saved revision but open the **current** deck, not an archived snapshot.
 - **Comments** opens a local review sidebar with point/object pins, replies, resolve/reopen, and an explicit handoff to Claude. Comments are separate from artwork and never appear in exports.
 - The displayed canvas surface is clipped to the active slide plus an editing margin, so adjacent frames do not distract. This is a CSS viewport mask over the real CanvasKit surface; the document graph, all slides, native editing, and exports remain intact. Resizing the workspace refits the slide.
 
@@ -104,6 +108,24 @@ npm start
 `.env.example` template. Local databases, conversations, screenshots, generated
 assets, dependencies, and build output are also ignored. Never put credentials
 in source files or commit exported decks containing private content.
+
+## Deploy on Render
+
+The included `Dockerfile` and `render.yaml` run a single Node 24 web service with **no persistent disk**. The blueprint uses Render's free plan for exploration; expect cold starts on that plan. A paid instance can avoid idle spin-down without changing storage.
+
+1. Push the tested code to your GitHub repository, then create a Render Blueprint from it.
+2. Set `ANTHROPIC_API_KEY` as a runtime secret. Do not use a `VITE_` variable or a Docker build argument for it.
+3. Render supplies `PORT` and `RENDER_EXTERNAL_URL`. The container binds to `0.0.0.0`; the relay uses Render's external URL for its host/origin allowlist.
+4. If using a custom domain, set `PUBLIC_ORIGIN` to its exact HTTPS origin, such as `https://your-domain.example`. Different domains have different browser storage; use backup/import when moving between them.
+5. Keep one server instance: active AI runs and their capability tokens are transient process memory. Scaling the relay would require shared run coordination or sticky routing, even though workspace data is browser-local.
+
+The health endpoint is `/api/health`. No database migration, volume, Redis or managed database is required. The normal server does not create or read `data/`. `.dockerignore` excludes environment files, databases and workspace backups.
+
+For a non-Render host, set `HOST=0.0.0.0`, `PORT` to its assigned port, and `PUBLIC_ORIGIN` to the exact public HTTPS origin. Never copy a localhost `.env` into the deployment image; set hosted values through the provider's runtime environment settings.
+
+This prototype deliberately has **no user authentication**. Browser-local storage prevents visitors from reading one another's workspace through the app, but it does not protect a shared server API key from public usage. Anyone who can reach the AI endpoint can consume credits. The existing tool/time/cancellation limits and an eight-active-run ceiling remain; these are not account authentication or a spending cap. Use only an API key and usage budget appropriate for a public experiment.
+
+Workspace edits and exports do not require a working AI connection once the app is loaded. This is not an offline/PWA installation: loading the app itself still requires its static files to be available.
 
 ## What works
 
@@ -164,13 +186,13 @@ The popup is clamped to the browser viewport and closes when the slide/viewport 
 
 ### Anchors and persistence
 
-Threads and messages live in separate SQLite tables (`comment_threads`, `comment_messages`), not in OpenPencil nodes or deck snapshots. Saving a comment does not increment the artwork revision. Saves validate the current deck revision, slide ID, object ID, body limits, and thread version; retries use stable request IDs to avoid duplicate posts. Failed loads/saves appear in the sidebar and preserve the draft. Unsent comment/reply drafts block switching decks and trigger the browser unload warning.
+Threads and messages live in a separate IndexedDB comment store, not in OpenPencil nodes or deck snapshots. Saving a comment does not increment the artwork revision. Saves validate the current deck revision, slide ID, object ID, body limits, and thread version; retries use stable request IDs to avoid duplicate posts. Failed loads/saves appear in the sidebar and preserve the draft. Unsent comment/reply drafts block switching decks and trigger the browser unload warning.
 
 Pins are DOM overlays on the actual SDK canvas, using its client rectangle, pan/zoom, frame transform, and object geometry. They do not enter CanvasKit renders, PNGs, PPTX files (including image-fallback slides), thumbnails, or presentation images.
 
 An object thread stores its **original slide-local fallback coordinates**. Durable deletion or movement to another slide permanently detaches it, keeping the thread and displaying a dashed pin at that original position when the original slide remains available. Reusing the object ID—even by undoing a deletion—does **not** silently reattach it. Deleted-slide threads stay in the sidebar, clearly detached, without a pin or active-slide AI action. Original slide/object labels remain available for historical context. Off-slide objects remain listed even when their pin is outside the viewport.
 
-Detachment is recorded in the **same SQLite transaction as the artwork save**. Resolved state, messages, anchors, and detachment survive restart. The editor currently persists flat text/shape children; comment projection uses SDK world transforms and is tested with nested/rotated geometry, but this does not add group editing/import support.
+Detachment is recorded in the **same IndexedDB transaction as the artwork save**. Resolved state, messages, anchors, and detachment survive restart. The editor currently persists flat text/shape children; comment projection uses SDK world transforms and is tested with nested/rotated geometry, but this does not add group editing/import support.
 
 Limits: **100 threads per deck, 50 total messages per thread, and 2,000 characters per message**. No automatic pruning or destructive deletion is performed.
 
@@ -178,7 +200,7 @@ Limits: **100 threads per deck, 50 total messages per thread, and 2,000 characte
 
 Nothing is sent to AI simply by creating, selecting, replying to, or resolving a comment. **Ask Claude to address this** explicitly sends that thread and its referenced slide/object context through the existing streamed chat pipeline. The unrelated main-composer draft is preserved.
 
-The backend loads the thread by deck ID and version, rejects stale/resolved/deleted-slide handoffs, and treats comment text as **untrusted user data**, never system instructions. The first post and up to nine recent replies are included with a bounded context budget; any truncation is flagged. A successful `read_context` for the referenced slide at the **current revision is required before mutation**. Subsequent AI batches still use command IDs, revision checks, atomic rollback, and durable save acknowledgements. Busy runs disable comment handoff/actions in the UI.
+The browser loads the thread by artifact ID and version and rejects stale/resolved/deleted-artboard handoffs. The relay treats submitted comment context as **untrusted user data**, never system instructions. The first post and up to nine recent replies are included with a bounded context budget; any truncation is flagged. A successful `read_context` for the referenced slide at the **current revision is required before mutation**. Subsequent AI batches still use command IDs, revision checks, atomic rollback, and durable save acknowledgements. Busy runs disable comment handoff/actions in the UI.
 
 Claude does **not** auto-resolve the thread after submission or a successful edit. Review the actual result and resolve it yourself. Detached-object handoffs explicitly identify the missing/moved target and use the surviving slide context instead of treating a replacement ID as the original object.
 
@@ -186,29 +208,31 @@ Claude does **not** auto-resolve the thread after submission or a successful edi
 
 | Area | Files |
 |---|---|
-| Chat-first workspace and browser command adapter | `src/Workspace.vue` |
-| Persisted chat artifact cards | `src/ArtifactCard.vue`, `shared/chat.ts` |
+| Chat-first workspace and browser command adapter | `src/ConversationWorkspace.vue`, `src/browser-chat.ts` |
+| Persisted chat artifact cards | `shared/artifacts.ts`, `src/local-store.ts` |
 | Real SDK rendering, pointer input, text/IME | `src/CanvasPane.vue` |
 | Graph snapshot/restore and structured mutations | `src/document.ts` |
 | Editable PowerPoint conversion, fallback planning, image rendering | `src/pptx-export.ts`, `src/pptx-raster.ts` |
-| Comment validation, storage, lifecycle and handoff | `shared/comments.ts`, `server/comments.ts` |
+| Comment validation, storage, lifecycle and handoff | `shared/comments.ts`, `src/local-comments.ts`, `src/local-store.ts` |
 | Comment sidebar, input mode and geometry overlays | `src/useComments.ts`, `src/CommentsSidebar.vue`, `src/CommentOverlay.vue`, `src/comment-geometry.ts` |
 | Canvas-only context menu, hit targeting and keyboard placement | `src/CanvasContextMenu.vue`, `src/canvas-context.ts` |
 | Floating selection formatting and viewport placement | `src/SelectionToolbar.vue`, `src/selection-toolbar.ts` |
-| Shared validated tool/snapshot contracts | `shared/model.ts` |
-| Fastify API, SSE runs, acknowledgements | `server/app.ts` |
+| Shared validated tool/snapshot contracts | `shared/model.ts`, `shared/artifacts.ts`, `shared/browser-chat.ts` |
+| Fastify API, SSE runs, acknowledgements | `server/browser-app.ts` |
 | Official Anthropic SDK and bounded tool loop | `server/agent.ts` |
-| SQLite revisions, receipts, chat | `server/store.ts` |
+| Browser-local revisions, receipts, comments and chat | `src/local-store.ts`, `src/local-api.ts` |
+| Transient AI relay and deployment origin checks | `server/browser-app.ts`, `server/workspace-tools.ts` |
+| Workspace backup/import | `shared/browser-storage.ts`, `src/local-store.ts` |
 
 `read_context` returns the live revision, active slide, selection IDs, slide metadata, and requested node properties. `apply_batch` only accepts the enumerated operations in `shared/model.ts` and an `expectedRevision`. Newly created IDs are supplied by the model and checked for uniqueness.
 
-The browser validates commands, captures a before-snapshot, applies the bounded batch synchronously to the SDK graph, validates the resulting slide topology, and submits a snapshot with its command ID and expected revision. SQLite updates the snapshot, increments the revision, and records the command receipt **in one transaction** (`WAL`, `synchronous=FULL`). Only then does the browser add its undo entry and acknowledge success. The server independently checks that the receipt exists before giving Claude a successful tool result.
+The browser validates commands, captures a before-snapshot, applies the batch to the editor, and saves the snapshot, revision, affected comment anchors and receipt in one IndexedDB transaction. It acknowledges success only after that transaction completes. The relay validates the command/revision and the matching browser commit acknowledgement; it cannot independently verify browser storage. This is an intentional change from server-authoritative SQLite. Browser tabs use optimistic revisions to reject conflicting writes rather than silently merging them.
 
 Failed batches restore the before-snapshot and return an error. Save retries reuse the exact payload and command ID; duplicate IDs with different content are rejected. Lost responses are reconciled against durable receipts. If the outcome cannot be determined, editing pauses until reload rather than pretending success. Concurrent/stale revisions return HTTP 409; reload to recover the latest durable deck. Already committed batches remain saved when cancelling; cancellation stops subsequent work, not completed changes.
 
 Limits: 100 slides, 2,000 nodes, 100 operations per batch, 12 MiB request body, 30 tool calls, 30 seconds per browser command, 120 seconds per run. There is no separate model-round/iteration cap: the agent continues until it finishes, is cancelled, or reaches one of the remaining budgets. At most one AI run per deck (legacy API) or conversation (shared workspace). Runs are intentionally not resumed after a server/browser restart.
 
-Data is stored in **`data/pencil-slides.sqlite`** (ignored by Git). To back up, stop the app and copy the database; while running, SQLite may also have `-wal` and `-shm` files. Do not delete `data/` to “reset” if it contains wanted decks.
+Current data lives in the **`pencil-workspace-v1` IndexedDB database**, scoped to the browser profile and site origin. Clearing that site's storage removes it. Workspace backups are JSON downloads made entirely in the browser. The relay never reads, creates or serves SQLite workspace files.
 
 ## SDK integration notes
 
@@ -221,20 +245,25 @@ OpenPencil `core`, `scene-graph`, and `vue` are pinned together at **0.15.0**; C
 
 ## Tests and verification
 
+The browser-local migration is covered by `tests/local-store.test.ts`, `tests/browser-app.test.ts`, and `tests/browser-chat.test.ts`: persistence and isolation, cross-tab revision conflicts, comment lifecycle/anchor mapping, atomic backup import, capability-protected run acknowledgements, hosted origin checks, and streamed transcript checkpoints. Legacy SQLite tests remain as historical regression coverage but do not describe the production storage path.
+
+Fresh-context Playwright checks verify that independent browser profiles see different workspaces; AI-created documents/slides/pages and comments survive reload; no workspace-storage API calls are made; backups import into a second profile; and edits save while the network is disconnected after loading. The production-only runtime is also checked without dev dependencies or UI source files. A full Docker build requires a running Docker daemon.
+
 ```sh
-npm test          # Node tests: real SDK graph/history, validation, SQLite reopen,
+npm test          # Node tests: real SDK graph/history, IndexedDB isolation/reopen,
                   # revision/idempotency, API origin guards, mocked streamed tools,
                   # generated PPTX ZIP/XML geometry, text, order, notes and fallback,
-                  # comment lifecycle, detachment, geometry and explicit AI handoff
+                  # comment lifecycle, detachment, geometry, browser receipts,
+                  # explicit AI handoff, host/origin policy and workspace backup/import
 npm run build    # Strict TS/Vue typecheck plus production bundle
 ```
 
-A separate, deterministic provider can exercise the **actual built browser adapter → SSE → SQLite → acknowledgement** flow without a key:
+A separate, deterministic provider can exercise the **actual editor → IndexedDB → AI relay acknowledgement** flow without a key:
 
 ```sh
 npm run build
 npx tsx tests/browser-server.ts
-# Open http://127.0.0.1:3002; separate data/browser-test.sqlite
+# Open http://127.0.0.1:3002; each browser profile has its own test workspace
 ```
 
 This is a test-only entry point, never enabled by the normal server. Select a title and send any prompt: it creates a slide and changes that selected title in one atomic batch. Send `fail` to test partial-batch rollback, `conflict` to test stale-revision rejection, or `cancel` then Stop to test abort. Ctrl+C stops the test server.
@@ -263,6 +292,6 @@ Selection-toolbar verification covers normal left-click and touch selection, pre
 
 ## Deliberate MVP boundaries
 
-Localhost only, no authentication, one user/editor tab recommended. Host/origin guards and loopback binding are not a substitute for authentication: **do not expose the API with a public tunnel, proxy, or port forward**. Other local processes have the same access as you.
+No authentication or collaborative editing. Browser profiles are independent; tabs on the same origin share local data and can encounter revision conflicts. Host/origin guards are not authentication. Public hosting still exposes the shared AI budget, as described in the Render section.
 
 No collaboration, public hosting, generated/imported images, arbitrary OpenPencil/Figma import, rich theme system, speaker-notes editor, or cross-session undo history. Slides support text and basic shapes only. Slide fonts use the SDK's bundled Inter; this is not a general font-management UI. Large decks can be slower because persistence uses full snapshots and thumbnails use actual raster rendering. Rich-text document boundaries are listed above.

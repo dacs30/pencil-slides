@@ -1,0 +1,15 @@
+node_modules
+dist
+public
+data
+.git
+.env
+.env.*
+.npmrc
+*.sqlite*
+*.db*
+*.pencil-backup.json
+*.log
+.playwright-mcp
+test-results
+playwright-report

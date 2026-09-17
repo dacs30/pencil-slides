@@ -12,6 +12,7 @@ export type Conversation = { id: string; title: string; artifacts: ArtifactInfo[
 export type ArtifactCardData = ArtifactInfo
 export type WorkspaceMessage = {
   role: 'user' | 'assistant'; content: string
+  runState?: 'running' | 'complete' | 'interrupted'
   activities?: import('./chat.js').ToolActivity[]
   artifacts?: ArtifactCardData[]
 }
@@ -25,6 +26,15 @@ export function normalizeArtifactCards(message: WorkspaceMessage): WorkspaceMess
   const artifacts: ArtifactCardData[] = []
   for (const artifact of message.artifacts) upsertArtifactCard(artifacts, artifact)
   return { ...message, artifacts }
+}
+export function restoreWorkspaceMessage(message: WorkspaceMessage): WorkspaceMessage {
+  const restored = normalizeArtifactCards(message)
+  if (restored.role !== 'assistant' || restored.runState !== 'running' && !restored.activities?.some(a => a.status === 'running')) return restored
+  const error = 'This run is not active in this tab. Check the saved artifacts before continuing.'
+  return {
+    ...restored, runState: 'interrupted', content: restored.content || error,
+    activities: restored.activities?.map(activity => activity.status === 'running' ? { ...activity, status: 'interrupted', error } : activity),
+  }
 }
 export type ArtifactCommand = { id: string; name: string; input: unknown }
 export type ArtifactAdapter = {

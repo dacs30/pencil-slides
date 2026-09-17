@@ -11,4 +11,4 @@ export type SlideArtifact = {
   slideIds: string[]
 }
 export type ChatDetails = { activities?: ToolActivity[]; artifacts?: SlideArtifact[] }
-export type ChatMessage = ChatDetails & { role: 'user' | 'assistant'; content: string }
+export type ChatMessage = ChatDetails & { role: 'user' | 'assistant'; content: string; runState?: 'running' | 'complete' | 'interrupted' }

@@ -1,15 +1,11 @@
-// Deterministic provider for exercising the real browser command/SQLite/SSE path without a key.
-import { mkdirSync } from 'node:fs'
+// Deterministic provider for the browser IndexedDB/AI relay flow, without a key or server workspace.
 import { randomUUID } from 'node:crypto'
-import { Store } from '../server/store.js'
-import { createApp } from '../server/app.js'
+import { createBrowserApp } from '../server/browser-app.js'
 import type { Provider } from '../server/agent.js'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { Operation } from '../shared/model.js'
 import { workspaceProvider } from './workspace-provider.js'
 
-mkdirSync('data', { recursive: true })
-const store = new Store('data/browser-test.sqlite')
 const provider: Provider = async (messages, signal, text) => {
   const userIndex = messages.findLastIndex(m => m.role === 'user' && typeof m.content === 'string')
   const latest = messages[userIndex]?.content as string
@@ -48,9 +44,10 @@ const provider: Provider = async (messages, signal, text) => {
   text(message)
   return [{ type: 'text', text: message, citations: null }]
 }
-const app = createApp(store, provider)
-await app.listen({ host: '127.0.0.1', port: 3002 })
-console.log('Deterministic browser test server: http://127.0.0.1:3002 (separate test database)')
+const port = Number(process.env.PENCIL_TEST_PORT || 3002)
+const app = createBrowserApp(provider, { publicOrigin: `http://127.0.0.1:${port}` })
+await app.listen({ host: '127.0.0.1', port })
+console.log(`Deterministic browser test server: http://127.0.0.1:${port} (browser-local storage)`)
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.once(signal, async () => { await app.close(); store.close(); process.exit(0) })
+  process.once(signal, async () => { await app.close(); process.exit(0) })
 }

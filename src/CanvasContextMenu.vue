@@ -5,7 +5,7 @@ import type { CommentAnchorInput } from '../shared/comments'
 import { clampContextMenu, keyboardCommentAnchor, pointerCommentAnchor } from './canvas-context'
 import { objectPointOnSlide, slidePointToViewport, type Point } from './comment-geometry'
 
-const props = defineProps<{ host?: HTMLElement; editor: Editor; frameId: string; blocked: boolean; commentsReady: boolean; commentsLoading: boolean }>()
+const props = defineProps<{ host?: HTMLElement; editor: Editor; frameId: string; blocked: boolean; commentsReady: boolean; commentsLoading: boolean; surface?: 'slide' | 'page' }>()
 const emit = defineEmits<{ addComment: [anchor: CommentAnchorInput]; openChange: [open: boolean] }>()
 const open = ref(false)
 const anchor = ref<CommentAnchorInput | null>(null)
@@ -18,9 +18,9 @@ const disabled = computed(() => props.blocked || !props.commentsReady || !anchor
 const targetLabel = computed(() => {
   if (props.blocked) return 'Finish the current editor action first'
   if (!props.commentsReady) return props.commentsLoading ? 'Comments are loading…' : 'Comments unavailable · open Comments to retry'
-  if (!anchor.value) return 'Right-click inside a slide'
+  if (!anchor.value) return `Right-click inside a ${props.surface ?? 'slide'}`
   if (anchor.value.kind === 'object') return `On ${props.editor.graph.getNode(anchor.value.nodeId)?.name ?? 'this object'}`
-  return `At ${Math.round(anchor.value.x)}, ${Math.round(anchor.value.y)} on this slide`
+  return `At ${Math.round(anchor.value.x)}, ${Math.round(anchor.value.y)} on this ${props.surface ?? 'slide'}`
 })
 function canvas() { return props.host?.querySelector('canvas') }
 function isCanvasTarget(target: EventTarget | null) { return target === props.host || target === canvas() }

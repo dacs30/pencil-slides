@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { snapshotSchema, type Deck, type Snapshot } from '../shared/model.js'
 import type { ChatDetails, ChatMessage } from '../shared/chat.js'
 import { initializeComments, reconcileCommentAnchors } from './comments.js'
+import { initializeWorkspace } from './workspace-store.js'
 
 export class Conflict extends Error {}
 export class Store {
@@ -16,6 +17,7 @@ export class Store {
     const columns = this.db.prepare('PRAGMA table_info(chat)').all() as { name: string }[]
     if (!columns.some(column => column.name === 'details')) this.db.exec("ALTER TABLE chat ADD COLUMN details TEXT NOT NULL DEFAULT '{}'")
     initializeComments(this.db)
+    initializeWorkspace(this.db)
   }
   list() {
     return (this.db.prepare('SELECT id, revision, snapshot, updated FROM decks ORDER BY updated DESC').all() as unknown as { id: string; revision: number; snapshot: string; updated: string }[])

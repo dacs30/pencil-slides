@@ -9,6 +9,7 @@ import { applyOperations, restore, snapshot } from './document'
 import { batchSchema, operationSchema, readSchema, type Command, type Deck, type ElementProperties, type Operation, type Snapshot, type ToolResult } from '../shared/model'
 import CanvasPane from './CanvasPane.vue'
 import ArtifactCard from './ArtifactCard.vue'
+import MarkdownMessage from './MarkdownMessage.vue'
 import type { ChatMessage, SlideArtifact, ToolActivity } from '../shared/chat'
 import type { PowerPointMode, SlideExportReport } from './pptx-export'
 import { useComments } from './useComments'
@@ -18,9 +19,10 @@ import CanvasContextMenu from './CanvasContextMenu.vue'
 import SelectionToolbar from './SelectionToolbar.vue'
 import { toolbarSelection } from './selection-toolbar'
 import type { CommentHandoff } from '../shared/comments'
+import { saveWithReceipt, UnknownSaveOutcome } from './artifact-save'
 
-const props = defineProps<{ deck: Deck }>()
-const emit = defineEmits<{ saved: []; lock: [locked: boolean] }>()
+const props = defineProps<{ deck: Deck; embedded?: boolean; externalBusy?: boolean; saveBase?: string }>()
+const emit = defineEmits<{ saved: []; lock: [locked: boolean]; handoff: [request: CommentHandoff]; selection: [context: unknown] }>()
 const graph = new SceneGraph()
 restore(graph, props.deck.snapshot)
 const meta = reactive({ title: props.deck.snapshot.title, pageId: props.deck.snapshot.pageId, slides: props.deck.snapshot.slides.map(s => ({ ...s })) })
@@ -51,8 +53,8 @@ const selected = computed(() => { generation.value; state.sceneVersion; return g
 const activeSlide = computed(() => meta.slides.find(s => s.id === active.value) ?? meta.slides[0]!)
 const layers = computed(() => { generation.value; return graph.getChildren(activeSlide.value.id) })
 const toolbarNode = computed(() => { generation.value; state.sceneVersion; return toolbarSelection(graph, state.selectedIds, active.value) })
-const artworkBusy = computed(() => running.value || saving.value || fatal.value || presenting.value || exportingPptx.value)
-const commentState = useComments({ deckId: props.deck.id, editor, active, revision, generation, artworkBusy, flush, navigate, handoff: request => sendChat(request) })
+const artworkBusy = computed(() => Boolean(props.externalBusy || running.value || saving.value || fatal.value || presenting.value || exportingPptx.value))
+const commentState = useComments({ deckId: props.deck.id, editor, active, revision, generation, artworkBusy, flush, navigate, handoff: async request => { if (props.embedded) emit('handoff', request); else await sendChat(request) } })
 const comments = reactive(commentState)
 const locked = computed(() => artworkBusy.value || comments.saving || comments.pointMode)
 const titleInput = ref(meta.title)
@@ -83,6 +85,7 @@ let lastSaved = JSON.stringify(props.deck.snapshot)
 watch([locked, dirty, commentState.hasDraft], () => emit('lock', locked.value || dirty.value || comments.hasDraft), { immediate: true })
 watch(propertiesOpen, value => { if (value) comments.open = false })
 watch(commentState.open, value => { if (value) propertiesOpen.value = false })
+watch(() => [state.sceneVersion, [...state.selectedIds].join('\0'), active.value], () => emit('selection', { selectedIds: [...state.selectedIds], name: selected.value?.name }), { immediate: true })
 watch(() => [messages.value.length, messages.value.at(-1)?.content, messages.value.at(-1)?.activities?.length, messages.value.at(-1)?.artifacts?.length], async () => {
   await nextTick()
   if (messages.value.length && followChat && chatScroll.value) chatScroll.value.scrollTop = chatScroll.value.scrollHeight
@@ -179,30 +182,15 @@ function scheduleThumbnails() {
 }
 async function durableSave(data: Snapshot, commandId: string) {
   const body = JSON.stringify({ expectedRevision: revision.value, snapshot: data, commandId })
-  let failure: unknown
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const saved = await api<{ revision: number }>(`/decks/${props.deck.id}`, { method: 'PUT', body })
-      revision.value = saved.revision
-      lastSaved = JSON.stringify(data)
-      void comments.reload()
-      return
-    } catch (e) { failure = e }
-  }
-  // A dropped response is not evidence that the transaction failed.
   try {
-    const result = await api<{ committed: { revision: number } | null }>(`/decks/${props.deck.id}/commands/${commandId}`)
-    if (result.committed) {
-      revision.value = result.committed.revision
-      lastSaved = JSON.stringify(data)
-      void comments.reload()
-      return
-    }
-  } catch {
-    fatal.value = true
-    throw new Error('Save outcome unknown. Editing is paused; reload when the server is reachable to recover the durable deck.')
+    const saved = await saveWithReceipt(props.saveBase ?? `/decks/${props.deck.id}`, body, commandId)
+    revision.value = saved.revision
+    lastSaved = JSON.stringify(data)
+    void comments.reload()
+  } catch (e) {
+    if (e instanceof UnknownSaveOutcome) fatal.value = true
+    throw e
   }
-  throw failure
 }
 async function flush() {
   if (state.editingTextId) editor.commitTextEdit()
@@ -532,7 +520,7 @@ onMounted(async () => {
   })
   if (viewport.value) viewportObserver.observe(viewport.value)
   try {
-    messages.value = await api(`/decks/${props.deck.id}/chat`)
+    if (!props.embedded) messages.value = await api(`/decks/${props.deck.id}/chat`)
     aiConfigured.value = (await api<{ aiConfigured: boolean }>('/health')).aiConfigured
   } catch (e) { error.value = String(e) }
 })
@@ -547,11 +535,12 @@ onUnmounted(() => {
   window.removeEventListener('beforeunload', beforeUnload)
   window.removeEventListener('keydown', presentationKey)
 })
+defineExpose({ flush, execute, context: () => ({ selectedIds: [...state.selectedIds], name: selected.value?.name }) })
 </script>
 
 <template>
-  <div class="workspace" @pointerdown.capture="commitOnOutside">
-    <aside class="chat-panel" aria-label="Design conversation">
+  <div :class="embedded ? 'embedded-editor' : 'workspace'" @pointerdown.capture="commitOnOutside">
+    <aside v-if="!embedded" class="chat-panel" aria-label="Design conversation">
       <div class="conversation-heading"><span class="eyebrow">YOUR DESIGN PARTNER</span><span class="local-badge">Private workspace</span></div>
       <div class="chat-scroll" ref="chatScroll" @scroll="trackChatScroll">
         <section v-if="!messages.length" class="chat-welcome">
@@ -567,7 +556,8 @@ onUnmounted(() => {
         <div class="messages" aria-live="polite" aria-relevant="additions text">
           <article v-for="(m, i) in messages" :key="i" :class="['message', m.role]">
             <div class="message-author"><span v-if="m.role === 'assistant'" class="assistant-mark" aria-hidden="true">p/</span>{{ m.role === 'user' ? 'You' : 'Pencil' }}</div>
-            <p v-if="m.content">{{ m.content }}</p>
+            <MarkdownMessage v-if="m.role === 'assistant' && m.content" :content="m.content" />
+            <p v-else-if="m.content">{{ m.content }}</p>
             <p v-else-if="running && i === messages.length - 1" class="working-label"><span class="working-dot" />Working on your request…</p>
             <details v-if="m.activities?.length" class="tool-activity">
               <summary><span class="activity-symbol" aria-hidden="true">⌁</span>{{ activitySummary(m.activities) }}<span class="disclosure-arrow" aria-hidden="true">⌄</span></summary>
@@ -649,7 +639,7 @@ onUnmounted(() => {
             <CommentOverlay v-if="ready && !presenting" :graph="graph" :view="state" :slide-id="active" :point-mode="comments.pointMode" :disabled="locked || contextMenuOpen" :focused-id="comments.focusedId"
               :draft-pin="comments.draftPin" :pins="comments.pins" :canvas-rect="canvasRect" @select="selectComment" @place="comments.placePoint" @cancel="comments.pointMode = false" @error="comments.error = $event" />
             <SelectionToolbar v-if="ready && toolbarNode" :key="toolbarNode.id" :editor="editor" :node="toolbarNode" :version="generation + state.sceneVersion + state.renderVersion" :host="viewport"
-              :hidden="Boolean(contextMenuOpen || canvasInteracting || state.editingTextId || running || presenting || exportingPptx || comments.pointMode || comments.draftAnchor || comments.saving)"
+              :hidden="Boolean(contextMenuOpen || canvasInteracting || state.editingTextId || externalBusy || running || presenting || exportingPptx || comments.pointMode || comments.draftAnchor || comments.saving)"
               :disabled="locked" :comments-ready="comments.loaded" @format="formatSelection" @comment="selectionComment" @properties="selectionProperties" @dismiss="dismissSelectionToolbar" />
             <div v-if="!ready" class="canvas-loading"><span class="working-dot" />Preparing your canvas…</div>
           </div>

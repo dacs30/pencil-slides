@@ -1,10 +1,60 @@
-# Pencil Slides
+# Pencil: documents, slides and pages
 
-A local, single-user slide studio: **real OpenPencil editing**, Vue 3, CanvasKit, SQLite, and a server-side Claude tool-use assistant. This is an MVP, not a hosted service.
+A local, single-user creative studio: **Tiptap rich-text documents**, **real OpenPencil slides and designed pages**, Vue 3, CanvasKit, SQLite, and a server-side Claude tool-use assistant. This is an MVP, not a hosted service.
+
+## Conversations and artifacts
+
+One conversation can contain multiple **documents, slide decks and pages**. Use **+ Document**, **+ Slide deck**, or **+ Page**, switch with **Choose artifact**, or ask Claude to create them. Chat belongs to the conversation, not to a single deck. Each assistant response keeps one card per artifact: creation and later saves update that first card in place. Existing duplicate cards are coalesced when history loads. Cards identify the latest saved revision in that response but open the current artifact, not an archived snapshot.
+
+Existing decks migrate automatically into individual conversations with their original IDs, snapshots, slide comments, and chat/artifact history intact. Migration is transactional and runs once per unlinked deck. The old deck API remains available; decks created through that legacy API are imported into the workspace on the next server startup.
+
+`src/ConversationWorkspace.vue` owns the shared conversation, artifact switching, and streamed command dispatch. The slide and document editors expose the same adapter contract: `flush`, `execute`, and `context`. `Workspace.vue` remains the slide editor and can also operate in its original standalone mode. Saves use the shared receipt-reconciliation helper in `src/artifact-save.ts`.
+
+Assistant replies render as sanitized GitHub-flavored Markdown while streaming and after reload: headings, emphasis, lists, links, tables, inline code and fenced code blocks. User messages and comment bodies remain plain text. Raw HTML is shown as text, external images are represented by their alt text rather than loaded, and links are restricted to HTTP(S) and mailto with opener protection. `src/MarkdownMessage.vue` uses Marked and DOMPurify; model output cannot create active scripts, forms or embedded content.
+
+### Rich-text documents
+
+Documents use Tiptap/ProseMirror, not OpenPencil. The editor supports paragraphs, headings 1-3, bold, italic, underline, strikethrough, inline code, highlighting, safe links, bullet/numbered lists, block quotes, code blocks, and horizontal rules. Select text to reveal its floating formatting toolbar. Lists and heading styles are also available in the document toolbar. Native typing, paste, selection, and keyboard undo/redo operate on real rich text.
+
+Content is persisted as validated ProseMirror JSON. Saves include replayable transaction steps; the server checks that replay produces the submitted snapshot and title, maps comment ranges, increments the revision, and writes the command receipt in one SQLite transaction. Manual edits autosave after 1.5 seconds of idle time, with a ten-second maximum delay during continuous typing. Background saves do not disable the editor, reset its content, move the cursor, or hide formatting controls. Each request captures an immutable prefix of transactions; typing and title edits made during that request remain queued for the next revision. Explicit export/review actions flush pending work. AI batches form one undo event, including title changes. Undo/redo are saved as new revisions. Unknown save outcomes pause editing rather than allowing a potentially divergent document. Wait for **Saved rN** before closing. History is local to the mounted editor; switching artifacts or reloading starts a new undo history.
+
+Select text and choose **Comment** to start a range-anchored review thread. Comments support replies, resolve/reopen, original quoted text, and explicit **Ask Claude to address this**. Anchors follow ProseMirror position maps, not searches for matching words, so repeated text does not confuse their targets. Removing the entire selected range permanently detaches its thread; undoing deletion does not silently reattach it. Comments are stored separately from document content and never appear in Word export. Unsent comment/reply drafts block artifact and conversation switching. Limits are 100 threads per document, 50 messages per thread, and 2,000 characters per comment or selected quote.
+
+**Export Word** downloads an editable `.docx` using semantic paragraphs, heading styles, list numbering, text formatting, and hyperlinks. Generation stays in the browser and the exporter loads only when requested. The file uses US Letter with one-inch margins and Arial defaults; fonts are not embedded. It is not a screenshot or a Microsoft Word embed. Browser layout and Word pagination can differ. Export fails visibly if content cannot be represented, rather than silently dropping it.
+
+The first document milestone deliberately excludes tables, images, checklists, reactions, document tabs, import/round-trip editing of existing Word files, exact print pagination, tracked changes, PDF export, and Google Docs/Notion publishing. These are not implied by the corresponding controls in the Claude reference. Nested lists beyond nine levels cannot be exported to Word. Documents are bounded to 5,000 nodes, 24 nesting levels, and 600 KB of serialized content.
+
+### Shared AI workflow
+
+The assistant can `create_artifact`, `read_context`, and `apply_batch`. Reads and writes identify the artifact; document commands use ProseMirror positions rather than plain-text offsets, while slides retain their existing graph operations. Published Anthropic tool schemas have plain object roots (no top-level `oneOf`/`anyOf`/`allOf`). `operations` is one explicitly required array whose items enumerate the supported edits; runtime validation still strictly enforces the artifact kind. The server requires a successful current-revision read before each mutation and verifies a durable receipt before reporting success. There is at most one AI run per conversation. Editing and artifact/conversation switching are locked during a run; the command adapter can open the artifact being read or edited.
+
+The provider preserves Anthropic's stop reason. If a response reaches `max_tokens`, none of its tools are executed, even if an incomplete tool happens to parse as valid JSON. The agent receives explicit feedback to retry with a smaller batch; at most two such recoveries are allowed before a clear output-limit error stops the run. Already committed batches remain saved. Normal requests are guided toward small batches rather than a single large page payload. `tests/agent-output.test.ts` exercises this through the real SDK with a synthetic stream and no live credential.
+
+Comment handoffs load the thread on the server, validate its version and resolved state, and require a fresh read of the referenced artifact (and slide for slide comments). Comment text remains untrusted data. Handoffs do not clear an unrelated main-composer draft or automatically resolve the thread.
+
+### Designed pages
+
+Empty hug-sized auto-layout frames are valid between saved batches, even when their computed height is zero. Children can be added in subsequent batches. Page frames support the same solid paint, outline, and uniform corner-radius controls as rectangles.
+
+Ask for a **page** or **landing page**, or choose **+ Page**. This creates a third artifact kind backed by a real OpenPencil document, with one 320-1920-pixel-wide artboard and nested frames, text, rectangles and ellipses. It is not a rich-text document or a fixed-size slide. Double-click canvas text to edit, use the floating formatting toolbar, or open **Properties** for text, geometry, fill, layout, padding, and an outline of selectable elements. Use **Section** for a nested auto-layout frame. Undo/redo, revision checks, atomic AI batches and durable receipts follow the existing editing contract.
+
+**Open full window** switches modes inside the same artifact, matching the reference's navigation rather than opening a new tab. It displays actual readable HTML without editing handles or properties. **Fill** uses the available viewport width; vertical/horizontal auto-layout sections and wrapping rows reflow. **Fit** preserves the design width and scales it to the available panel. **Back to canvas** restores the editor. Freeform-positioned content preserves its coordinates; use auto layout for responsive designs.
+
+**Export HTML** downloads the saved page as a standalone, script-free HTML file. Text is escaped, styles are generated from validated graph properties, and a restrictive content security policy is included. In-app preview uses locally bundled Inter fonts; exported files reference font names without embedding font files and may fall back to Arial. HTML text layout can differ from CanvasKit. Unsupported fills/effects or other unrepresentable features produce an explicit preview/export error rather than a screenshot or silently dropped content.
+
+Page tools are `update_page`, `create_page_element`, `update_page_element`, `delete_page_element`, and `move_page_element`, inside `apply_batch` with `kind: "page"`. Read with `view: "page"` or `view: "selection"`; selection reads include selected frames' descendants. `FRAME` supports vertical/horizontal/freeform layout, wrapping, sizing, spacing and padding; `TEXT` uses Inter with optional height auto-resizing. Limits: 500 nodes, 12 nested levels, 20,000 characters per text node, 20,000 pixels maximum node height, and a 4 MiB snapshot.
+
+Page **Comments** uses the same local review flow as slides: pin a point, comment on selected text/shapes/sections, or right-click the canvas and choose **Add comment**. Keyboard placement follows the visible artboard and can move through tall pages; pins use the real frame dimensions rather than a slide-height limit. Nested and rotated objects use SDK world transforms. Threads support replies, resolve/reopen, reload persistence, and explicit **Ask Claude to address this**. A full current-page read is required before a comment-driven AI edit, and Claude never auto-resolves the thread.
+
+Page comments live in separate `page_comment_threads` and `page_comment_messages` tables. They do not increment artwork revisions and never appear in full-window HTML or downloaded exports. Moving an object between sections of the same page preserves its attachment. Durable deletion permanently detaches the thread at its original page-local position; restoring the same object ID does not reattach it. Detachment is recorded in the artwork-save transaction. Unsent drafts block artifact/conversation switching. Limits remain 100 threads per page, 50 messages per thread and 2,000 characters per message.
+
+The initial page release does **not** add multiple artboards inside one artifact, arbitrary HTML/CSS/script execution, remote images, forms, hosting, publishing, or external website imports. Existing deck/document data is untouched; page snapshots live in a separate `pages` table. `src/PageEditor.vue` reuses `CanvasPane.vue`, the OpenPencil editor, shared graph restoration and formatting helpers. `src/page-html.ts` renders the HTML view; it does not run model-generated code.
+
+New implementation files: `shared/artifacts.ts`, `shared/rich-text.ts`, `shared/text-comments.ts`, `server/workspace-store.ts`, `server/workspace-api.ts`, `src/ConversationWorkspace.vue`, `src/DocumentEditor.vue`, and `src/word-export.ts`. The existing slide-only endpoints and contracts remain separate for backward compatibility.
 
 ## Workspace
 
-The original **Pencil Slides** interface uses a Claude-inspired chat-and-artifact layout, not Anthropic branding or assets: warm ivory surfaces, charcoal text, muted terracotta accents, and restrained controls. Conversation is on the left; the active slide is the large, focused artifact on the right. On narrow screens the slide artifact stacks above the conversation.
+The **Pencil** interface uses a Claude-inspired chat-and-artifact layout, not Anthropic branding or assets: warm ivory surfaces, charcoal text, muted terracotta accents, and restrained controls. Conversation is on the left; the active document or slide deck is the large, focused artifact on the right. On narrow screens the artifact stacks above the conversation. The following controls describe slide decks.
 
 - **Text** inserts editable text. **Shapes** offers working rectangle and ellipse tools.
 - **Properties** reveals slide naming/background, element selection, geometry/text/fill controls, and slide reordering/deletion.
@@ -156,7 +206,7 @@ The browser validates commands, captures a before-snapshot, applies the bounded 
 
 Failed batches restore the before-snapshot and return an error. Save retries reuse the exact payload and command ID; duplicate IDs with different content are rejected. Lost responses are reconciled against durable receipts. If the outcome cannot be determined, editing pauses until reload rather than pretending success. Concurrent/stale revisions return HTTP 409; reload to recover the latest durable deck. Already committed batches remain saved when cancelling; cancellation stops subsequent work, not completed changes.
 
-Limits: 100 slides, 2,000 nodes, 100 operations per batch, 12 MiB request body, 10 model rounds, 30 tool calls, 30 seconds per browser command, 120 seconds per run. At most one AI run per deck. Runs are intentionally not resumed after a server/browser restart.
+Limits: 100 slides, 2,000 nodes, 100 operations per batch, 12 MiB request body, 30 tool calls, 30 seconds per browser command, 120 seconds per run. There is no separate model-round/iteration cap: the agent continues until it finishes, is cancelled, or reaches one of the remaining budgets. At most one AI run per deck (legacy API) or conversation (shared workspace). Runs are intentionally not resumed after a server/browser restart.
 
 Data is stored in **`data/pencil-slides.sqlite`** (ignored by Git). To back up, stop the app and copy the database; while running, SQLite may also have `-wal` and `-shm` files. Do not delete `data/` to “reset” if it contains wanted decks.
 
@@ -189,7 +239,17 @@ npx tsx tests/browser-server.ts
 
 This is a test-only entry point, never enabled by the normal server. Select a title and send any prompt: it creates a slide and changes that selected title in one atomic batch. Send `fail` to test partial-batch rollback, `conflict` to test stale-revision rejection, or `cancel` then Stop to test abort. Ctrl+C stops the test server.
 
-The same fixture supports comment handoff: create a comment on a selected text object, then choose **Ask Claude to address this**. It reads the referenced slide, updates that text through the real browser/SQLite acknowledgement flow, and leaves the thread unresolved. This is deterministic provider testing, not a live Anthropic call.
+The fixture also supports the shared workspace without an API key. Send **Create both a document and slides** to exercise creation, artifact switching, current-context reads, document/slide saves, and durable acknowledgements in one conversation. In an existing document, select text and send a normal request to replace that selection. Send **fail** for an invalid second document operation, **conflict** for a stale revision, and **cancel** then Stop for cancellation. `tests/documents.test.ts` covers schemas, range mapping, migration, idempotency and Word ZIP/XML; `tests/workspace.test.ts` covers the shared streamed protocol. These are deterministic provider tests, not live Anthropic calls.
+
+The shared workspace was also exercised in Playwright: creating both artifact kinds in one streamed request, document formatting, title undo/redo, text comments and replies, resolve/reopen, draft switching guards, explicit comment handoff preserving the chat draft, replacement detachment surviving undo, rollback/cancellation, reload persistence, mobile layout, and actual Word/PowerPoint downloads. A downloaded Word file passed OOXML schema validation. Desktop Word rendering and live Anthropic requests are not part of these deterministic checks.
+
+A separate live Anthropic smoke test through Playwright created and saved a short document and one-slide deck in one conversation, confirming provider acceptance of the published tool schemas and durable saves for both artifact types.
+
+The isolated deterministic provider also supports **Create a page about Tokyo**. `tests/pages.test.ts` covers real SDK layout, nested graph restoration, topology validation, escaped HTML, API ownership and durable page saves. Page browser checks use a separate browser context and test database, not a live API credential.
+
+Page Playwright checks verified a single updated artifact card, real canvas rendering, property-based text editing, undo/redo, Fill reflow at desktop and mobile widths, Fit preserving the 1200-pixel design width, readable HTML with no canvas or editable fields, returning to the canvas on mobile, actual HTML download, atomic failed-batch rollback, and reload persistence.
+
+Page-comment browser checks cover nested object and section anchors, keyboard context-menu points, replies, resolve/reopen, draft switching guards, explicit AI handoff preserving the composer draft, permanent detachment after deletion/undo, and mobile keyboard placement below the old 1080-pixel slide boundary. Markdown checks exercise streamed headings/lists/tables/code, safe links, plain user messages, reload, and blocked script/image payloads. Run the deterministic browser fixture and send **markdown test** to reproduce the Markdown sample without an API key.
 
 Playwright verification covered the real CanvasKit surface, text insertion/property edits, native double-click text editing, native rectangle drag/resize, save/reload, undo/redo, slide ordering, thumbnails, PNG download, and presentation image dimensions. The deterministic provider also exercised browser-side selected-text updates, atomic AI undo/redo, rollback, revision failures, cancellation, and persisted chat after restart. **No live Anthropic request was verified without a configured API key.**
 
@@ -205,4 +265,4 @@ Selection-toolbar verification covers normal left-click and touch selection, pre
 
 Localhost only, no authentication, one user/editor tab recommended. Host/origin guards and loopback binding are not a substitute for authentication: **do not expose the API with a public tunnel, proxy, or port forward**. Other local processes have the same access as you.
 
-No collaboration, public hosting, generated/imported images, arbitrary OpenPencil/Figma import, rich theme system, speaker-notes editor, or cross-session undo history. Slides support text and basic shapes only. Fonts use the SDK's bundled Inter; this is not a general font-management UI. Large decks can be slower because persistence uses full snapshots and thumbnails use actual raster rendering.
+No collaboration, public hosting, generated/imported images, arbitrary OpenPencil/Figma import, rich theme system, speaker-notes editor, or cross-session undo history. Slides support text and basic shapes only. Slide fonts use the SDK's bundled Inter; this is not a general font-management UI. Large decks can be slower because persistence uses full snapshots and thumbnails use actual raster rendering. Rich-text document boundaries are listed above.

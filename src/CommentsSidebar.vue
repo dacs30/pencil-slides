@@ -23,7 +23,7 @@ function date(value: string) {
     <div v-if="c.error" class="comment-error" role="alert"><span>{{ c.error }}</span><button type="button" :disabled="c.saving || c.loading" @click="c.reload">Refresh comments</button></div>
     <p v-if="c.loading" class="comment-saving" role="status">Loading comments…</p>
     <p v-if="c.saving" class="comment-saving" role="status">Saving comment…</p>
-    <div v-if="c.pointMode" class="comment-mode-help">Click inside the slide, or use arrow keys and Enter. Escape cancels.<button type="button" @click="c.pointMode = false">Cancel pinning</button></div>
+    <div v-if="c.pointMode" class="comment-mode-help">Click inside the {{ c.surface }}, or use arrow keys and Enter. Escape cancels.<button type="button" @click="c.pointMode = false">Cancel pinning</button></div>
     <form v-if="c.draftAnchor" class="comment-draft" @submit.prevent="c.post">
       <strong>{{ c.draftAnchor.kind === 'object' ? 'Comment on selected object' : 'Comment at this point' }}</strong>
       <small>{{ currentSlideTitle }}</small>
@@ -39,7 +39,7 @@ function date(value: string) {
         <div class="thread-message"><div class="comment-author">You <time :datetime="thread.messages[0]?.createdAt">{{ date(thread.createdAt) }}</time></div><p>{{ thread.messages[0]?.body }}</p></div>
         <template v-if="c.focusedId === thread.id">
           <div v-for="message in thread.messages.slice(1)" :key="message.id" class="thread-message reply-message"><div class="comment-author">You <time :datetime="message.createdAt">{{ date(message.createdAt) }}</time></div><p>{{ message.body }}</p></div>
-          <p v-if="c.attachment(thread).detached" class="detachment-note">The original target is detached. Its original slide-local position is preserved; this thread will not attach to a replacement object.</p>
+          <p v-if="c.attachment(thread).detached" class="detachment-note">The original target is detached. Its original {{ c.surface }}-local position is preserved; this thread will not attach to a replacement object.</p>
           <div class="comment-thread-actions">
             <button type="button" :disabled="busy || c.saving" @click="c.setResolved(thread, !thread.resolved)">{{ thread.resolved ? 'Reopen thread' : 'Resolve thread' }}</button>
             <button v-if="!thread.resolved" type="button" class="ask-comment" :disabled="busy || c.saving || !aiConfigured || c.attachment(thread).detached === 'slide_deleted'" @click="c.ask(thread)">Ask Claude to address this ↗</button>

@@ -9,6 +9,12 @@ export const commentAnchorInput = z.discriminatedUnion('kind', [
 export const createCommentSchema = z.object({
   id: z.uuid(), expectedRevision: z.number().int().nonnegative(), anchor: commentAnchorInput, body,
 }).strict()
+export const createPageCommentSchema = createCommentSchema.extend({
+  anchor: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('point'), slideId: nodeId, x: z.number().finite().min(0).max(1920), y: z.number().finite().min(0).max(20000) }).strict(),
+    z.object({ kind: z.literal('object'), slideId: nodeId, nodeId }).strict(),
+  ]),
+})
 export const replyCommentSchema = z.object({
   id: z.uuid(), expectedVersion: z.number().int().positive(), body,
 }).strict()
@@ -32,8 +38,8 @@ export const chatRequestSchema = z.object({
   expectedCommentVersion: z.number().int().positive().optional(),
 }).strict().refine(data => Boolean(data.commentThreadId) === (data.expectedCommentVersion !== undefined), 'Comment handoff requires a thread ID and version')
 
-export function detachmentLabel(value: Detachment) {
-  return value === 'slide_deleted' ? 'Detached · slide deleted'
+export function detachmentLabel(value: Detachment, surface = 'slide') {
+  return value === 'slide_deleted' ? `Detached · ${surface} deleted`
     : value === 'object_deleted' ? 'Detached · object deleted'
-      : value === 'object_moved' ? 'Detached · object moved to another slide' : ''
+      : value === 'object_moved' ? `Detached · object moved to another ${surface}` : ''
 }

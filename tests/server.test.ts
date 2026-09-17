@@ -125,8 +125,9 @@ test('agent bounds loops, rejects unsupported tools and observes cancellation', 
     messages: [{ role: 'user', content: 'test' }], signal: controller.signal,
     emit: (_event, data) => events.push(data),
     execute: async () => { executions++; return { ok: true } },
-  }), /Iteration limit/)
+  }), /Tool limit reached \(30\)/)
   assert.equal(executions, 0)
+  assert.equal(events.length, 30)
   assert.match(JSON.stringify(events), /Unsupported tool/)
   controller.abort()
   await assert.rejects(runAgent({ provider: async () => [], messages: [], signal: controller.signal, emit: () => {}, execute: async () => ({ ok: true }) }))

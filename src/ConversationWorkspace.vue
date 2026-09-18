@@ -187,7 +187,7 @@ onUnmounted(() => { controller?.abort(); void writer?.flush().catch(() => { /* T
 <template>
   <div class="workspace">
     <aside class="chat-panel" aria-label="Workspace conversation">
-      <div class="conversation-heading"><span class="eyebrow">YOUR WRITING &amp; DESIGN PARTNER</span></div>
+      <div class="conversation-heading"><slot name="header"><span class="eyebrow">YOUR WRITING &amp; DESIGN PARTNER</span></slot></div>
       <div ref="chatScroll" class="chat-scroll" @scroll="trackScroll">
         <section v-if="!messages.length" class="chat-welcome">
           <div class="welcome-mark" aria-hidden="true">p/</div><h1>One idea.<br>Many ways to tell it.</h1>

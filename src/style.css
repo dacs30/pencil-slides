@@ -61,24 +61,18 @@ svg { display: block; }
 .row { display: flex; gap: 5px; align-items: center; }
 .hint { font-size: 11px; line-height: 1.75; color: var(--muted); }
 .icon-button { width: 31px; height: 31px; padding: 0; font-size: 18px; flex-shrink: 0; }
-.app-header {
-  height: 64px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 27px;
-}
-.brand { display: flex; align-items: center; gap: 10px; font-size: 16px; letter-spacing: -.4px; }
+.panel-header { display: flex; flex-direction: column; gap: 10px; width: 100%; min-width: 0; }
+.brand { display: flex; align-items: baseline; gap: 10px; font-size: 16px; letter-spacing: -.4px; min-width: 0; }
 .brand-icon { width: 29px; height: 29px; display: grid; place-items: center; color: var(--accent); }
 .brand-icon svg { width: 25px; height: 25px; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.brand small { font-size: 11px; color: #928d82; letter-spacing: 0; margin-left: 14px; border-left: 1px solid var(--line); padding-left: 22px; }
-.deck-picker { display: flex; align-items: center; gap: 12px; }
-.deck-picker select { max-width: 220px; border-color: transparent; background: transparent; font-size: 12px; }
-.deck-picker button { border-color: var(--line); font-size: 12px; background: var(--paper); }
+.brand small { font-size: 11px; color: #928d82; letter-spacing: 0; margin-left: 4px; border-left: 1px solid var(--line); padding-left: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.deck-picker { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.deck-picker select { flex: 1; min-width: 0; max-width: none; border-color: var(--line); background: var(--paper); font-size: 12px; }
+.deck-picker button { border-color: var(--line); font-size: 12px; background: var(--paper); flex-shrink: 0; }
 
-.workspace { display: grid; grid-template-columns: minmax(310px, 29%) minmax(0, 1fr); gap: 18px; height: calc(100dvh - 64px); padding: 4px 20px 20px 0; }
-.chat-panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 16px 13px 0 27px; }
-.conversation-heading { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-bottom: 20px; }
+.workspace { display: grid; grid-template-columns: minmax(300px, 25%) minmax(0, 1fr); gap: 14px; height: 100dvh; padding: 14px 14px 14px 0; }
+.chat-panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 2px 10px 0 22px; }
+.conversation-heading { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
 .local-badge { color: #929083; font-size: 9px; white-space: nowrap; }
 .chat-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #d6d1c7 transparent; padding: 0 3px; }
 .chat-welcome { padding: 37px 4px 25px; }
@@ -318,7 +312,7 @@ svg { display: block; }
 .error { background: #f6e9df; color: #9a6448; padding: 11px 18px; font-size: 11px; line-height: 1.7; display: flex; gap: 8px; align-items: center; }
 .error > span { flex: 1; overflow-wrap: anywhere; }
 .error button { background: #fff8ef; font-size: 10px; border-color: #e3cbbb; flex-shrink: 0; }
-.loading { padding: 100px 20px; text-align: center; color: var(--muted); }
+.loading { padding: 100px 20px; text-align: center; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .presentation { position: fixed; inset: 0; background: #171613; z-index: 50; display: flex; align-items: center; justify-content: center; }
 .presentation > img { width: 100%; height: 100%; object-fit: contain; }
 .presentation-controls { position: absolute; bottom: 20px; display: flex; gap: 12px; align-items: center; padding: 8px; border-radius: 12px; background: #242019e8; color: #ebe2d1; }
@@ -328,7 +322,7 @@ svg { display: block; }
 body > textarea[aria-hidden="true"] { position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; padding: 0; border: 0; resize: none; pointer-events: none; }
 
 @media (max-width: 1250px) {
-  .workspace { grid-template-columns: 300px minmax(0, 1fr); gap: 10px; padding-right: 12px; }
+  .workspace { grid-template-columns: 290px minmax(0, 1fr); gap: 10px; padding-right: 10px; }
   .chat-panel { padding-left: 21px; padding-right: 10px; }
   .chat-welcome { padding-top: 22px; }
   .chat-welcome h1 { font-size: 29px; }
@@ -360,13 +354,12 @@ body > textarea[aria-hidden="true"] { position: fixed; left: 0; top: 0; width: 1
   .thumbnails-toggle > span { font-size: 16px; }
 }
 @media (max-width: 720px) {
-  .app-header { height: 58px; padding: 0 15px; }
   .brand { font-size: 14px; gap: 6px; }
   .brand-icon { width: 22px; }
-  .deck-picker { gap: 2px; }
-  .deck-picker select { max-width: 130px; font-size: 10px; padding: 6px 3px; }
+  .deck-picker { gap: 4px; }
+  .deck-picker select { font-size: 10px; padding: 6px 3px; }
   .deck-picker button { padding: 7px; font-size: 10px; }
-  .workspace { height: auto; min-height: calc(100dvh - 58px); display: flex; flex-direction: column; gap: 16px; padding: 3px 10px 15px; }
+  .workspace { height: auto; min-height: 100dvh; display: flex; flex-direction: column; gap: 12px; padding: 10px 10px 15px; }
   .artifact-panel { order: 0; height: 650px; min-height: 560px; flex-shrink: 0; border-radius: 11px; }
   .chat-panel { order: 1; min-height: 400px; max-height: 680px; padding: 12px 10px 0; }
   .conversation-heading { padding-bottom: 14px; }

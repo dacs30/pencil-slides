@@ -67,33 +67,36 @@ onMounted(async () => {
 })
 </script>
 <template>
-  <header class="app-header">
-    <div class="brand"><strong>Pencil</strong><small>Documents, slides &amp; pages · This browser</small></div>
-    <div class="deck-picker">
-      <details class="shape-menu browser-storage-menu">
-        <summary>Browser storage</summary>
-        <div class="shape-options">
-          <p>Work is saved only in this browser profile and site. Export a backup before clearing browser data or changing devices.</p>
-          <button :disabled="busy || locked" @click="exportBackup">Export workspace backup</button>
-          <button :disabled="busy || locked" @click="backupInput?.click()">Import workspace backup</button>
-          <small v-if="backupStatus" role="status">{{ backupStatus }}</small>
-        </div>
-      </details>
-      <input ref="backupInput" class="backup-file-input" type="file" accept=".json,application/json" aria-label="Import workspace backup file" @change="importBackup">
-      <select aria-label="Choose conversation" :value="current?.id" :disabled="busy || locked" @change="open(($event.target as HTMLSelectElement).value)">
-        <option v-for="conversation in conversations" :key="conversation.id" :value="conversation.id">{{ conversation.title }}</option>
-      </select>
-      <button :disabled="busy || locked" @click="create">+ New conversation</button>
-    </div>
-  </header>
   <div v-if="error" class="error" role="alert">{{ error }}<button @click="refreshSafely">Retry</button></div>
-  <ConversationWorkspace v-if="current" :key="current.id" :conversation="current" @refresh="refreshSafely" @lock="locked = $event" />
-  <main v-else class="loading">Opening your local studio...</main>
+  <ConversationWorkspace v-if="current" :key="current.id" :conversation="current" @refresh="refreshSafely" @lock="locked = $event">
+    <template #header>
+      <div class="panel-header">
+        <div class="brand"><strong>Pencil</strong><small>Documents, slides &amp; pages · This browser</small></div>
+        <div class="deck-picker">
+          <select aria-label="Choose conversation" :value="current?.id" :disabled="busy || locked" @change="open(($event.target as HTMLSelectElement).value)">
+            <option v-for="conversation in conversations" :key="conversation.id" :value="conversation.id">{{ conversation.title }}</option>
+          </select>
+          <button :disabled="busy || locked" @click="create" title="New conversation" aria-label="New conversation">+ New</button>
+          <details class="shape-menu browser-storage-menu">
+            <summary>Storage</summary>
+            <div class="shape-options">
+              <p>Work is saved only in this browser profile and site. Export a backup before clearing browser data or changing devices.</p>
+              <button :disabled="busy || locked" @click="exportBackup">Export workspace backup</button>
+              <button :disabled="busy || locked" @click="backupInput?.click()">Import workspace backup</button>
+              <small v-if="backupStatus" role="status">{{ backupStatus }}</small>
+            </div>
+          </details>
+          <input ref="backupInput" class="backup-file-input" type="file" accept=".json,application/json" aria-label="Import workspace backup file" @change="importBackup">
+        </div>
+      </div>
+    </template>
+  </ConversationWorkspace>
+  <main v-else class="loading"><div class="brand"><strong>Pencil</strong></div>Opening your local studio...</main>
 </template>
 
 <style>
 .browser-storage-menu > summary { padding: 8px; font-size: 11px; }
-.browser-storage-menu .shape-options { width: 270px; padding: 12px; z-index: 90; }
+.browser-storage-menu .shape-options { width: 270px; padding: 12px; z-index: 90; left: 0; right: auto; }
 .browser-storage-menu p { margin: 0 0 8px; font-size: 11px; line-height: 1.6; color: var(--muted); white-space: normal; }
 .browser-storage-menu small { display: block; padding: 8px 0; white-space: normal; }
 .backup-file-input { display: none; }
